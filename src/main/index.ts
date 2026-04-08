@@ -7,6 +7,12 @@ import {
   isWorkspace,
   WorkspaceInfo,
 } from './services/workspace';
+import {
+  scanDirectory,
+  expandDirectory,
+  getAllPDFFiles,
+  importPDFFile,
+} from './services/file-system';
 
 // Keep a global reference of the window object
 let mainWindow: BrowserWindow | null = null;
@@ -132,10 +138,40 @@ ipcMain.handle('file:read', async (_event, filePath: string) => {
   try {
     const fs = await import('fs/promises');
     const buffer = await fs.readFile(filePath);
-    return buffer;
+    // Convert to base64 for safe IPC transfer
+    return buffer.toString('base64');
   } catch (error) {
     throw error;
   }
 });
+
+// File system IPC handlers
+ipcMain.handle(
+  'fs:scanDirectory',
+  async (_event, dirPath: string, workspaceRoot: string) => {
+    return scanDirectory(dirPath, workspaceRoot);
+  }
+);
+
+ipcMain.handle(
+  'fs:expandDirectory',
+  async (_event, node: any, workspaceRoot: string) => {
+    return expandDirectory(node, workspaceRoot);
+  }
+);
+
+ipcMain.handle(
+  'fs:getAllPDFFiles',
+  async (_event, dirPath: string, workspaceRoot: string) => {
+    return getAllPDFFiles(dirPath, workspaceRoot);
+  }
+);
+
+ipcMain.handle(
+  'fs:importPDF',
+  async (_event, sourcePath: string, targetDir: string) => {
+    return importPDFFile(sourcePath, targetDir);
+  }
+);
 
 console.log('[Main] PaperMate main process started');

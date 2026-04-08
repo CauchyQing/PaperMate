@@ -15,8 +15,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getRecentWorkspaces: () => ipcRenderer.invoke('workspace:getRecent'),
   closeWorkspace: () => ipcRenderer.invoke('workspace:close'),
 
-  // File operations
+  // File operations - returns base64, renderer converts to Uint8Array
   readFile: (path: string) => ipcRenderer.invoke('file:read', path),
+
+  // File system operations
+  scanDirectory: (dirPath: string, workspaceRoot: string) =>
+    ipcRenderer.invoke('fs:scanDirectory', dirPath, workspaceRoot),
+  expandDirectory: (node: any, workspaceRoot: string) =>
+    ipcRenderer.invoke('fs:expandDirectory', node, workspaceRoot),
+  getAllPDFFiles: (dirPath: string, workspaceRoot: string) =>
+    ipcRenderer.invoke('fs:getAllPDFFiles', dirPath, workspaceRoot),
+  importPDF: (sourcePath: string, targetDir: string) =>
+    ipcRenderer.invoke('fs:importPDF', sourcePath, targetDir),
 
   // Database operations (temporary using JSON store)
   dbQuery: (sql: string, params?: any[]) => ipcRenderer.invoke('db:query', sql, params),
@@ -33,7 +43,11 @@ declare global {
       createWorkspace: (path: string, name: string) => Promise<any>;
       getRecentWorkspaces: () => Promise<any[]>;
       closeWorkspace: () => Promise<boolean>;
-      readFile: (path: string) => Promise<Uint8Array>;
+      readFile: (path: string) => Promise<string>; // returns base64
+      scanDirectory: (dirPath: string, workspaceRoot: string) => Promise<any[]>;
+      expandDirectory: (node: any, workspaceRoot: string) => Promise<any[]>;
+      getAllPDFFiles: (dirPath: string, workspaceRoot: string) => Promise<any[]>;
+      importPDF: (sourcePath: string, targetDir: string) => Promise<any>;
       dbQuery: (sql: string, params?: any[]) => Promise<any[]>;
       dbRun: (sql: string, params?: any[]) => Promise<any>;
     };
