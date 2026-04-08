@@ -2,17 +2,17 @@
   "name": "papermate",
   "version": "0.1.0",
   "description": "Interactive paper reading assistant with AI integration",
-  "main": "dist/main/index.js",
+  "main": "dist/main/main/index.js",
   "author": "PaperMate Team",
   "license": "MIT",
   "scripts": {
     "dev": "npm run build:main && concurrently \"npm run dev:main\" \"npm run dev:renderer\"",
-    "dev:main": "electron dist/main/index.js",
+    "dev:main": "electron dist/main/main/index.js",
     "dev:renderer": "vite --config vite.renderer.config.ts",
     "build": "npm run build:main && npm run build:renderer",
     "build:main": "tsc -p tsconfig.main.json",
     "build:renderer": "vite build --config vite.renderer.config.ts",
-    "preview": "npm run build && electron dist/main/index.js",
+    "preview": "npm run build && electron dist/main/main/index.js",
     "package": "npm run build && electron-builder",
     "package:mac": "npm run build && electron-builder --mac",
     "package:win": "npm run build && electron-builder --win",
@@ -22,6 +22,7 @@
     "@types/node": "^20.10.0",
     "@types/react": "^18.2.43",
     "@types/react-dom": "^18.2.17",
+    "@types/uuid": "^10.0.0",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.16",
     "concurrently": "^8.2.2",
@@ -34,10 +35,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.96",
-    "better-sqlite3": "^9.4.0",
     "chokidar": "^3.5.3",
-    "electron-is-dev": "^3.0.1",
-    "keytar": "^7.9.0",
     "lucide-react": "^0.468.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -65,7 +63,10 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         }
       ]
     },
@@ -73,7 +74,9 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ]
     }

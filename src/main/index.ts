@@ -1,9 +1,17 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import * as path from 'path';
-import isDev from 'electron-is-dev';
+import { configService } from './services/config';
+import {
+  createWorkspace,
+  openWorkspace,
+  isWorkspace,
+  WorkspaceInfo,
+} from './services/workspace';
 
 // Keep a global reference of the window object
 let mainWindow: BrowserWindow | null = null;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+let _currentWorkspace: WorkspaceInfo | null = null;
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -13,13 +21,14 @@ function createWindow(): void {
     minHeight: 600,
     titleBarStyle: 'hiddenInset',
     webPreferences: {
-      nodeIntegration: true,
+      nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
     },
   });
 
   // Load the app
+  const isDev = !app.isPackaged;
   if (isDev) {
     mainWindow.loadURL('http://localhost:3000');
     mainWindow.webContents.openDevTools();
@@ -33,7 +42,10 @@ function createWindow(): void {
 }
 
 // App lifecycle
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Initialize config service
+  await configService.init();
+
   createWindow();
 
   app.on('activate', () => {
@@ -67,6 +79,63 @@ ipcMain.handle('dialog:openDirectory', async () => {
   }
 
   return result.filePaths[0];
+});
+
+// Workspace IPC handlers
+ipcMain.handle('workspace:getRecent', async () => {
+  return configService.getRecentWorkspaces();
+});
+
+ipcMain.handle('workspace:open', async (_event, folderPath: string) => {
+  // Check if it's already a workspace
+  if (await isWorkspace(folderPath)) {
+    const result = await openWorkspace(folderPath);
+    if (result.success && result.workspace) {
+      _currentWorkspace = result.workspace;
+      await configService.addRecentWorkspace(
+        folderPath,
+        result.workspace.name
+      );
+      return { success: true, workspace: result.workspace };
+    }
+    return { success: false, error: result.error };
+  }
+
+  // Not a workspace, ask to create one
+  return {
+    success: false,
+    error: 'NOT_WORKSPACE',
+    message: '此文件夹尚未初始化为 PaperMate 工作区',
+  };
+});
+
+ipcMain.handle(
+  'workspace:create',
+  async (_event, folderPath: string, name: string) => {
+    const result = await createWorkspace(folderPath, name);
+    if (result.success && result.workspace) {
+      _currentWorkspace = result.workspace;
+      await configService.addRecentWorkspace(folderPath, name);
+      return { success: true, workspace: result.workspace };
+    }
+    return { success: false, error: result.error };
+  }
+);
+
+ipcMain.handle('workspace:close', () => {
+  _currentWorkspace = null;
+  return true;
+});
+
+// File IPC handlers
+ipcMain.handle('file:read', async (_event, filePath: string) => {
+  try {
+    const fs = await import('fs/promises');
+    const buffer = await fs.readFile(filePath);
+    return buffer;
+  } catch (error) {
+    throw error;
+  }
 });
 
 console.log('[Main] PaperMate main process started');

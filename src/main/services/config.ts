@@ -1,7 +1,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { app } from 'electron';
-import type { GlobalConfig, WorkspaceSettings } from '../../shared/types';
+import type { GlobalConfig } from '../../shared/types';
 
 const GLOBAL_CONFIG_DIR = path.join(app.getPath('home'), '.papermate');
 const GLOBAL_CONFIG_PATH = path.join(GLOBAL_CONFIG_DIR, 'global-config.json');

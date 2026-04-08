@@ -17,12 +17,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // File operations
   readFile: (path: string) => ipcRenderer.invoke('file:read', path),
-  importPaper: (sourcePath: string, targetDir: string) => ipcRenderer.invoke('paper:import', sourcePath, targetDir),
 
-  // Agent SDK
-  sendToAgent: (message: string, context?: any) => ipcRenderer.invoke('agent:send', message, context),
-
-  // Database operations
+  // Database operations (temporary using JSON store)
   dbQuery: (sql: string, params?: any[]) => ipcRenderer.invoke('db:query', sql, params),
   dbRun: (sql: string, params?: any[]) => ipcRenderer.invoke('db:run', sql, params),
 });
@@ -36,10 +32,8 @@ declare global {
       openWorkspace: (path: string) => Promise<any>;
       createWorkspace: (path: string, name: string) => Promise<any>;
       getRecentWorkspaces: () => Promise<any[]>;
-      closeWorkspace: () => Promise<void>;
-      readFile: (path: string) => Promise<Buffer>;
-      importPaper: (sourcePath: string, targetDir: string) => Promise<any>;
-      sendToAgent: (message: string, context?: any) => Promise<any>;
+      closeWorkspace: () => Promise<boolean>;
+      readFile: (path: string) => Promise<Uint8Array>;
       dbQuery: (sql: string, params?: any[]) => Promise<any[]>;
       dbRun: (sql: string, params?: any[]) => Promise<any>;
     };
