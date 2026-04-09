@@ -221,6 +221,20 @@ ipcMain.handle(
   }
 );
 
+// 需求5.5.2: 按阅读状态分类
+ipcMain.handle('paper:getByReadStatus', async (_event, workspacePath: string) => {
+  const store = getPaperStore(workspacePath);
+  await store.init();
+  return store.getPapersByReadStatus();
+});
+
+// 需求5.5.2: 按重要性（评分）分类
+ipcMain.handle('paper:getByRating', async (_event, workspacePath: string) => {
+  const store = getPaperStore(workspacePath);
+  await store.init();
+  return store.getPapersByRating();
+});
+
 ipcMain.handle('tag:getAll', async (_event, workspacePath: string) => {
   const store = getPaperStore(workspacePath);
   await store.init();

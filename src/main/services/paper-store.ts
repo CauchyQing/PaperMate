@@ -1,6 +1,6 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import type { Paper, Tag, PaperWithMeta, CategoryGroup, CategoryType } from '../../shared/types/category';
+import type { Paper, Tag, PaperWithMeta, CategoryGroup, CategoryType, ReadStatus } from '../../shared/types/category';
 import { v4 as uuidv4 } from 'uuid';
 
 export class PaperStore {
@@ -189,6 +189,61 @@ export class PaperStore {
       .map((p) => this.enrichPaper(p));
   }
 
+  // 需求5.5.2: 按阅读状态分组
+  getPapersByReadStatus(): CategoryGroup[] {
+    const statusOrder: ReadStatus[] = ['unread', 'reading', 'read', 'deep_read'];
+    const statusLabels: Record<ReadStatus, string> = {
+      unread: '未读',
+      reading: '阅读中',
+      read: '已读',
+      deep_read: '精读',
+    };
+
+    const groups = new Map<ReadStatus, PaperWithMeta[]>();
+
+    // 初始化所有状态分组
+    statusOrder.forEach((status) => groups.set(status, []));
+
+    this.data.papers.forEach((paper) => {
+      const status = paper.readStatus || 'unread';
+      if (!groups.has(status)) {
+        groups.set(status, []);
+      }
+      groups.get(status)!.push(this.enrichPaper(paper));
+    });
+
+    return statusOrder
+      .filter((status) => groups.get(status)!.length > 0)
+      .map((status) => ({
+        id: `status-${status}`,
+        name: statusLabels[status],
+        count: groups.get(status)!.length,
+        papers: groups.get(status)!,
+      }));
+  }
+
+  // 需求5.5.2: 按重要性（评分）分组
+  getPapersByRating(): CategoryGroup[] {
+    const groups = new Map<number, PaperWithMeta[]>();
+
+    this.data.papers.forEach((paper) => {
+      const rating = paper.rating || 0;
+      if (!groups.has(rating)) {
+        groups.set(rating, []);
+      }
+      groups.get(rating)!.push(this.enrichPaper(paper));
+    });
+
+    return Array.from(groups.entries())
+      .sort((a, b) => b[0] - a[0]) // 从高到低排序
+      .map(([rating, papers]) => ({
+        id: `rating-${rating}`,
+        name: rating === 0 ? '未评分' : '⭐'.repeat(rating),
+        count: papers.length,
+        papers,
+      }));
+  }
+
   private enrichPaper(paper: Paper): PaperWithMeta {
     return {
       ...paper,
@@ -200,7 +255,9 @@ export class PaperStore {
   async importPaper(filePath: string, relativePath: string): Promise<Paper> {
     // Check if already exists
     const existing = this.getPaperByPath(filePath);
-    if (existing) return existing;
+    if (existing) {
+      return existing;
+    }
 
     // Extract metadata from filename (basic implementation)
     const fileName = path.basename(filePath);
@@ -217,6 +274,7 @@ export class PaperStore {
       tags: [],
       isFavorite: false,
       isArchived: false,
+      readStatus: 'unread',
     });
 
     return paper;

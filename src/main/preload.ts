@@ -38,6 +38,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   paperGetByJournal: (workspacePath: string) => ipcRenderer.invoke('paper:getByJournal', workspacePath),
   paperGetByTag: (workspacePath: string, tagType: string) =>
     ipcRenderer.invoke('paper:getByTag', workspacePath, tagType),
+  paperGetByReadStatus: (workspacePath: string) =>
+    ipcRenderer.invoke('paper:getByReadStatus', workspacePath),
+  paperGetByRating: (workspacePath: string) =>
+    ipcRenderer.invoke('paper:getByRating', workspacePath),
 
   // Tag operations
   tagGetAll: (workspacePath: string) => ipcRenderer.invoke('tag:getAll', workspacePath),
@@ -66,6 +70,8 @@ declare global {
       paperGetByYear: (workspacePath: string) => Promise<any[]>;
       paperGetByJournal: (workspacePath: string) => Promise<any[]>;
       paperGetByTag: (workspacePath: string, tagType: string) => Promise<any[]>;
+      paperGetByReadStatus: (workspacePath: string) => Promise<any[]>;
+      paperGetByRating: (workspacePath: string) => Promise<any[]>;
       tagGetAll: (workspacePath: string) => Promise<any[]>;
       tagAdd: (workspacePath: string, tag: any) => Promise<any>;
       tagDelete: (workspacePath: string, tagId: string) => Promise<boolean>;
