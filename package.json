@@ -79,6 +79,12 @@
           ]
         }
       ]
+    },
+    "electronDownload": {
+      "mirror": "https://npmmirror.com/mirrors/electron/"
+    },
+    "nsis": {
+      "artifactName": "${productName} Setup ${version}.${ext}"
     }
   }
 }

@@ -24,6 +24,7 @@ export default defineConfig({
   },
   server: {
     port: 3000,
+    strictPort: true, // Don't auto-switch ports — Electron expects 3000
   },
   css: {
     postcss: {

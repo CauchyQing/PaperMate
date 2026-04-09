@@ -27,6 +27,7 @@ function createWindow(): void {
     minWidth: 1000,
     minHeight: 600,
     titleBarStyle: 'hiddenInset',
+    show: false, // Don't show until ready
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -34,13 +35,28 @@ function createWindow(): void {
     },
   });
 
+  // Show window when content is ready to prevent white flash
+  mainWindow.once('ready-to-show', () => {
+    mainWindow?.show();
+  });
+
   // Load the app
   const isDev = !app.isPackaged;
   if (isDev) {
-    mainWindow.loadURL('http://localhost:3000');
+    // In dev mode, Vite dev server may not be ready yet.
+    // Retry loading until the server is available.
+    const devUrl = 'http://localhost:3000';
+    const loadDevUrl = () => {
+      mainWindow?.loadURL(devUrl).catch(() => {
+        console.log('[Main] Vite dev server not ready, retrying in 1s...');
+        setTimeout(loadDevUrl, 1000);
+      });
+    };
+    loadDevUrl();
     mainWindow.webContents.openDevTools();
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+    // Production: dist/main/main/index.js → ../../renderer/index.html
+    mainWindow.loadFile(path.join(__dirname, '../../renderer/index.html'));
   }
 
   mainWindow.on('closed', () => {
