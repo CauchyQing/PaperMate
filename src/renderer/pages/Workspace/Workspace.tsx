@@ -1,9 +1,11 @@
 import React, { useState, useCallback } from 'react';
 import { useWorkspaceStore } from '../../stores/workspace';
 import FileBrowser from '../../components/FileBrowser/FileBrowser';
+import CategoryView from '../../components/CategoryView/CategoryView';
 import PDFViewer from '../../components/PDFViewer/PDFViewer';
 import TabBar from '../../components/TabBar/TabBar';
 import ResizableSplitter from '../../components/ResizableSplitter/ResizableSplitter';
+import { Folder, Layers } from 'lucide-react';
 
 const MIN_SIDEBAR_WIDTH = 180;
 const MAX_SIDEBAR_WIDTH = 400;
@@ -13,8 +15,11 @@ const MAX_CHAT_WIDTH = 500;
 const Workspace: React.FC = () => {
   const { currentWorkspace, closeWorkspace } = useWorkspaceStore();
 
+  // View state: 'files' or 'categories'
+  const [sidebarView, setSidebarView] = useState<'files' | 'categories'>('files');
+
   // Resizable widths
-  const [fileBrowserWidth, setFileBrowserWidth] = useState(240);
+  const [fileBrowserWidth, setFileBrowserWidth] = useState(280);
   const [chatPanelWidth, setChatPanelWidth] = useState(360);
 
   const handleFileBrowserResize = useCallback((delta: number) => {
@@ -57,12 +62,41 @@ const Workspace: React.FC = () => {
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left Sidebar - File Browser */}
+        {/* Left Sidebar - File Browser or Category View */}
         <div
-          className="flex-shrink-0 border-r border-gray-200 dark:border-gray-700 overflow-hidden"
+          className="flex-shrink-0 border-r border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col"
           style={{ width: fileBrowserWidth }}
         >
-          <FileBrowser />
+          {/* Sidebar View Switcher */}
+          <div className="flex border-b border-gray-200 dark:border-gray-700">
+            <button
+              onClick={() => setSidebarView('files')}
+              className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium transition-colors ${
+                sidebarView === 'files'
+                  ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400 border-b-2 border-primary-600'
+                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+              }`}
+            >
+              <Folder className="w-4 h-4" />
+              文件
+            </button>
+            <button
+              onClick={() => setSidebarView('categories')}
+              className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium transition-colors ${
+                sidebarView === 'categories'
+                  ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400 border-b-2 border-primary-600'
+                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+              }`}
+            >
+              <Layers className="w-4 h-4" />
+              分类
+            </button>
+          </div>
+
+          {/* Sidebar Content */}
+          <div className="flex-1 overflow-hidden">
+            {sidebarView === 'files' ? <FileBrowser /> : <CategoryView />}
+          </div>
         </div>
 
         {/* Resizable Splitter 1 */}

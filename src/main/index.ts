@@ -13,6 +13,7 @@ import {
   getAllPDFFiles,
   importPDFFile,
 } from './services/file-system';
+import { getPaperStore } from './services/paper-store';
 
 // Keep a global reference of the window object
 let mainWindow: BrowserWindow | null = null;
@@ -171,6 +172,76 @@ ipcMain.handle(
   'fs:importPDF',
   async (_event, sourcePath: string, targetDir: string) => {
     return importPDFFile(sourcePath, targetDir);
+  }
+);
+
+// Paper categorization IPC handlers
+ipcMain.handle('paper:getAll', async (_event, workspacePath: string) => {
+  const store = getPaperStore(workspacePath);
+  await store.init();
+  return store.getAllPapers();
+});
+
+ipcMain.handle(
+  'paper:import',
+  async (_event, workspacePath: string, filePath: string, relativePath: string) => {
+    const store = getPaperStore(workspacePath);
+    await store.init();
+    return store.importPaper(filePath, relativePath);
+  }
+);
+
+ipcMain.handle(
+  'paper:update',
+  async (_event, workspacePath: string, paperId: string, updates: any) => {
+    const store = getPaperStore(workspacePath);
+    await store.init();
+    return store.updatePaper(paperId, updates);
+  }
+);
+
+ipcMain.handle('paper:getByYear', async (_event, workspacePath: string) => {
+  const store = getPaperStore(workspacePath);
+  await store.init();
+  return store.getPapersByYear();
+});
+
+ipcMain.handle('paper:getByJournal', async (_event, workspacePath: string) => {
+  const store = getPaperStore(workspacePath);
+  await store.init();
+  return store.getPapersByJournal();
+});
+
+ipcMain.handle(
+  'paper:getByTag',
+  async (_event, workspacePath: string, tagType: string) => {
+    const store = getPaperStore(workspacePath);
+    await store.init();
+    return store.getPapersByTag(tagType as any);
+  }
+);
+
+ipcMain.handle('tag:getAll', async (_event, workspacePath: string) => {
+  const store = getPaperStore(workspacePath);
+  await store.init();
+  return store.getAllTags();
+});
+
+ipcMain.handle(
+  'tag:add',
+  async (_event, workspacePath: string, tag: any) => {
+    const store = getPaperStore(workspacePath);
+    await store.init();
+    return store.addTag(tag);
+  }
+);
+
+ipcMain.handle(
+  'tag:delete',
+  async (_event, workspacePath: string, tagId: string) => {
+    const store = getPaperStore(workspacePath);
+    await store.init();
+    return store.deleteTag(tagId);
   }
 );
 

@@ -16,8 +16,17 @@ declare global {
       expandDirectory: (node: FileNode, workspaceRoot: string) => Promise<FileNode[]>;
       getAllPDFFiles: (dirPath: string, workspaceRoot: string) => Promise<PDFFile[]>;
       importPDF: (sourcePath: string, targetDir: string) => Promise<{ success: boolean; path?: string; error?: string }>;
-      dbQuery: (sql: string, params?: any[]) => Promise<any[]>;
-      dbRun: (sql: string, params?: any[]) => Promise<any>;
+
+      // Paper categorization
+      paperGetAll: (workspacePath: string) => Promise<any[]>;
+      paperImport: (workspacePath: string, filePath: string, relativePath: string) => Promise<any>;
+      paperUpdate: (workspacePath: string, paperId: string, updates: any) => Promise<any>;
+      paperGetByYear: (workspacePath: string) => Promise<any[]>;
+      paperGetByJournal: (workspacePath: string) => Promise<any[]>;
+      paperGetByTag: (workspacePath: string, tagType: string) => Promise<any[]>;
+      tagGetAll: (workspacePath: string) => Promise<any[]>;
+      tagAdd: (workspacePath: string, tag: any) => Promise<any>;
+      tagDelete: (workspacePath: string, tagId: string) => Promise<boolean>;
     };
   }
 }

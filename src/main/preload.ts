@@ -28,9 +28,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
   importPDF: (sourcePath: string, targetDir: string) =>
     ipcRenderer.invoke('fs:importPDF', sourcePath, targetDir),
 
-  // Database operations (temporary using JSON store)
-  dbQuery: (sql: string, params?: any[]) => ipcRenderer.invoke('db:query', sql, params),
-  dbRun: (sql: string, params?: any[]) => ipcRenderer.invoke('db:run', sql, params),
+  // Paper categorization operations
+  paperGetAll: (workspacePath: string) => ipcRenderer.invoke('paper:getAll', workspacePath),
+  paperImport: (workspacePath: string, filePath: string, relativePath: string) =>
+    ipcRenderer.invoke('paper:import', workspacePath, filePath, relativePath),
+  paperUpdate: (workspacePath: string, paperId: string, updates: any) =>
+    ipcRenderer.invoke('paper:update', workspacePath, paperId, updates),
+  paperGetByYear: (workspacePath: string) => ipcRenderer.invoke('paper:getByYear', workspacePath),
+  paperGetByJournal: (workspacePath: string) => ipcRenderer.invoke('paper:getByJournal', workspacePath),
+  paperGetByTag: (workspacePath: string, tagType: string) =>
+    ipcRenderer.invoke('paper:getByTag', workspacePath, tagType),
+
+  // Tag operations
+  tagGetAll: (workspacePath: string) => ipcRenderer.invoke('tag:getAll', workspacePath),
+  tagAdd: (workspacePath: string, tag: any) => ipcRenderer.invoke('tag:add', workspacePath, tag),
+  tagDelete: (workspacePath: string, tagId: string) => ipcRenderer.invoke('tag:delete', workspacePath, tagId),
 });
 
 // TypeScript declarations
@@ -43,13 +55,20 @@ declare global {
       createWorkspace: (path: string, name: string) => Promise<any>;
       getRecentWorkspaces: () => Promise<any[]>;
       closeWorkspace: () => Promise<boolean>;
-      readFile: (path: string) => Promise<string>; // returns base64
+      readFile: (path: string) => Promise<string>;
       scanDirectory: (dirPath: string, workspaceRoot: string) => Promise<any[]>;
       expandDirectory: (node: any, workspaceRoot: string) => Promise<any[]>;
       getAllPDFFiles: (dirPath: string, workspaceRoot: string) => Promise<any[]>;
       importPDF: (sourcePath: string, targetDir: string) => Promise<any>;
-      dbQuery: (sql: string, params?: any[]) => Promise<any[]>;
-      dbRun: (sql: string, params?: any[]) => Promise<any>;
+      paperGetAll: (workspacePath: string) => Promise<any[]>;
+      paperImport: (workspacePath: string, filePath: string, relativePath: string) => Promise<any>;
+      paperUpdate: (workspacePath: string, paperId: string, updates: any) => Promise<any>;
+      paperGetByYear: (workspacePath: string) => Promise<any[]>;
+      paperGetByJournal: (workspacePath: string) => Promise<any[]>;
+      paperGetByTag: (workspacePath: string, tagType: string) => Promise<any[]>;
+      tagGetAll: (workspacePath: string) => Promise<any[]>;
+      tagAdd: (workspacePath: string, tag: any) => Promise<any>;
+      tagDelete: (workspacePath: string, tagId: string) => Promise<boolean>;
     };
   }
 }
