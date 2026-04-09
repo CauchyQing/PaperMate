@@ -2,10 +2,11 @@ import React, { useState, useCallback } from 'react';
 import { useWorkspaceStore } from '../../stores/workspace';
 import FileBrowser from '../../components/FileBrowser/FileBrowser';
 import CategoryView from '../../components/CategoryView/CategoryView';
+import AdvancedFilter from '../../components/AdvancedFilter/AdvancedFilter';
 import PDFViewer from '../../components/PDFViewer/PDFViewer';
 import TabBar from '../../components/TabBar/TabBar';
 import ResizableSplitter from '../../components/ResizableSplitter/ResizableSplitter';
-import { Folder, Layers } from 'lucide-react';
+import { Folder, Layers, Filter as FilterIcon } from 'lucide-react';
 
 const MIN_SIDEBAR_WIDTH = 180;
 const MAX_SIDEBAR_WIDTH = 400;
@@ -15,8 +16,8 @@ const MAX_CHAT_WIDTH = 500;
 const Workspace: React.FC = () => {
   const { currentWorkspace, closeWorkspace } = useWorkspaceStore();
 
-  // View state: 'files' or 'categories'
-  const [sidebarView, setSidebarView] = useState<'files' | 'categories'>('files');
+  // View state: 'files' | 'categories' | 'filter'
+  const [sidebarView, setSidebarView] = useState<'files' | 'categories' | 'filter'>('files');
 
   // Resizable widths
   const [fileBrowserWidth, setFileBrowserWidth] = useState(280);
@@ -91,11 +92,24 @@ const Workspace: React.FC = () => {
               <Layers className="w-4 h-4" />
               分类
             </button>
+            <button
+              onClick={() => setSidebarView('filter')}
+              className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium transition-colors ${
+                sidebarView === 'filter'
+                  ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400 border-b-2 border-primary-600'
+                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+              }`}
+            >
+              <FilterIcon className="w-4 h-4" />
+              筛选
+            </button>
           </div>
 
           {/* Sidebar Content */}
           <div className="flex-1 overflow-hidden">
-            {sidebarView === 'files' ? <FileBrowser /> : <CategoryView />}
+            {sidebarView === 'files' && <FileBrowser />}
+            {sidebarView === 'categories' && <CategoryView />}
+            {sidebarView === 'filter' && <AdvancedFilter />}
           </div>
         </div>
 
