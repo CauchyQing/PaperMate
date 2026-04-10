@@ -34,11 +34,11 @@ export interface GlobalConfig {
     lastOpenedAt: number;
   }>;
   settings: {
-    apiKey?: string;
-    defaultModel: string;
     autoSaveInterval: number;
     maxRecentWorkspaces: number;
   };
+  aiProviders: import('./ai').AIProviderConfig[];
+  activeProviderId?: string;
   windowState?: {
     width: number;
     height: number;

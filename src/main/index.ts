@@ -14,6 +14,9 @@ import {
   importPDFFile,
 } from './services/file-system';
 import { getPaperStore } from './services/paper-store';
+import { chatStream, cancelRequest, testConnection } from './services/ai-service';
+import { getConversationStore } from './services/conversation-store';
+import type { AIProviderConfig } from '../shared/types/ai';
 
 // Keep a global reference of the window object
 let mainWindow: BrowserWindow | null = null;
@@ -274,5 +277,85 @@ ipcMain.handle(
     return store.deleteTag(tagId);
   }
 );
+
+// AI Provider IPC handlers
+ipcMain.handle('ai:getProviders', () => {
+  return configService.getAIProviders();
+});
+
+ipcMain.handle('ai:getActiveProvider', () => {
+  return configService.getActiveProvider();
+});
+
+ipcMain.handle('ai:saveProvider', async (_event, provider: AIProviderConfig) => {
+  await configService.saveAIProvider(provider);
+  return true;
+});
+
+ipcMain.handle('ai:deleteProvider', async (_event, providerId: string) => {
+  await configService.deleteAIProvider(providerId);
+  return true;
+});
+
+ipcMain.handle('ai:setActive', async (_event, providerId: string) => {
+  await configService.setActiveProvider(providerId);
+  return true;
+});
+
+ipcMain.handle('ai:testConnection', async (_event, provider: AIProviderConfig) => {
+  return testConnection(provider);
+});
+
+ipcMain.handle('ai:chat', async (_event, messages: any[], options?: any) => {
+  if (!mainWindow) throw new Error('窗口未就绪');
+  return chatStream(mainWindow, messages, options);
+});
+
+ipcMain.handle('ai:stop', (_event, requestId: string) => {
+  return cancelRequest(requestId);
+});
+
+// Conversation IPC handlers
+ipcMain.handle('conversation:list', async (_event, workspacePath: string) => {
+  const store = getConversationStore(workspacePath);
+  await store.init();
+  return store.getAll();
+});
+
+ipcMain.handle('conversation:create', async (_event, workspacePath: string, data: any) => {
+  const store = getConversationStore(workspacePath);
+  await store.init();
+  return store.create(data);
+});
+
+ipcMain.handle('conversation:update', async (_event, workspacePath: string, id: string, updates: any) => {
+  const store = getConversationStore(workspacePath);
+  await store.init();
+  return store.update(id, updates);
+});
+
+ipcMain.handle('conversation:delete', async (_event, workspacePath: string, id: string) => {
+  const store = getConversationStore(workspacePath);
+  await store.init();
+  return store.delete(id);
+});
+
+ipcMain.handle('message:list', async (_event, workspacePath: string, conversationId: string) => {
+  const store = getConversationStore(workspacePath);
+  await store.init();
+  return store.getMessages(conversationId);
+});
+
+ipcMain.handle('message:add', async (_event, workspacePath: string, message: any) => {
+  const store = getConversationStore(workspacePath);
+  await store.init();
+  return store.addMessage(message);
+});
+
+ipcMain.handle('message:update', async (_event, workspacePath: string, id: string, updates: any) => {
+  const store = getConversationStore(workspacePath);
+  await store.init();
+  return store.updateMessage(id, updates);
+});
 
 console.log('[Main] PaperMate main process started');

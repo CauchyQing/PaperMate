@@ -47,6 +47,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
   tagGetAll: (workspacePath: string) => ipcRenderer.invoke('tag:getAll', workspacePath),
   tagAdd: (workspacePath: string, tag: any) => ipcRenderer.invoke('tag:add', workspacePath, tag),
   tagDelete: (workspacePath: string, tagId: string) => ipcRenderer.invoke('tag:delete', workspacePath, tagId),
+
+  // AI Provider operations
+  aiGetProviders: () => ipcRenderer.invoke('ai:getProviders'),
+  aiGetActiveProvider: () => ipcRenderer.invoke('ai:getActiveProvider'),
+  aiSaveProvider: (provider: any) => ipcRenderer.invoke('ai:saveProvider', provider),
+  aiDeleteProvider: (providerId: string) => ipcRenderer.invoke('ai:deleteProvider', providerId),
+  aiSetActive: (providerId: string) => ipcRenderer.invoke('ai:setActive', providerId),
+  aiTestConnection: (provider: any) => ipcRenderer.invoke('ai:testConnection', provider),
+  aiChat: (messages: any[], options?: any) => ipcRenderer.invoke('ai:chat', messages, options),
+  aiStop: (requestId: string) => ipcRenderer.invoke('ai:stop', requestId),
+  onAIStreamEvent: (callback: (event: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('ai:stream-event', handler);
+    return () => ipcRenderer.removeListener('ai:stream-event', handler);
+  },
 });
 
 // TypeScript declarations
@@ -75,6 +90,16 @@ declare global {
       tagGetAll: (workspacePath: string) => Promise<any[]>;
       tagAdd: (workspacePath: string, tag: any) => Promise<any>;
       tagDelete: (workspacePath: string, tagId: string) => Promise<boolean>;
+      // AI Provider operations
+      aiGetProviders: () => Promise<any[]>;
+      aiGetActiveProvider: () => Promise<any>;
+      aiSaveProvider: (provider: any) => Promise<boolean>;
+      aiDeleteProvider: (providerId: string) => Promise<boolean>;
+      aiSetActive: (providerId: string) => Promise<boolean>;
+      aiTestConnection: (provider: any) => Promise<{ success: boolean; error?: string }>;
+      aiChat: (messages: any[], options?: any) => Promise<string>;
+      aiStop: (requestId: string) => Promise<boolean>;
+      onAIStreamEvent: (callback: (event: any) => void) => () => void;
     };
   }
 }
