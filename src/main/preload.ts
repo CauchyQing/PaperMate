@@ -62,6 +62,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('ai:stream-event', handler);
     return () => ipcRenderer.removeListener('ai:stream-event', handler);
   },
+
+  // Conversation operations
+  conversationList: (workspacePath: string) => ipcRenderer.invoke('conversation:list', workspacePath),
+  conversationCreate: (workspacePath: string, data: any) => ipcRenderer.invoke('conversation:create', workspacePath, data),
+  conversationUpdate: (workspacePath: string, id: string, updates: any) => ipcRenderer.invoke('conversation:update', workspacePath, id, updates),
+  conversationDelete: (workspacePath: string, id: string) => ipcRenderer.invoke('conversation:delete', workspacePath, id),
+  messageList: (workspacePath: string, conversationId: string) => ipcRenderer.invoke('message:list', workspacePath, conversationId),
+  messageAdd: (workspacePath: string, message: any) => ipcRenderer.invoke('message:add', workspacePath, message),
+  messageUpdate: (workspacePath: string, id: string, updates: any) => ipcRenderer.invoke('message:update', workspacePath, id, updates),
 });
 
 // TypeScript declarations
@@ -100,6 +109,14 @@ declare global {
       aiChat: (messages: any[], options?: any) => Promise<string>;
       aiStop: (requestId: string) => Promise<boolean>;
       onAIStreamEvent: (callback: (event: any) => void) => () => void;
+      // Conversation operations
+      conversationList: (workspacePath: string) => Promise<any[]>;
+      conversationCreate: (workspacePath: string, data: any) => Promise<any>;
+      conversationUpdate: (workspacePath: string, id: string, updates: any) => Promise<any>;
+      conversationDelete: (workspacePath: string, id: string) => Promise<boolean>;
+      messageList: (workspacePath: string, conversationId: string) => Promise<any[]>;
+      messageAdd: (workspacePath: string, message: any) => Promise<any>;
+      messageUpdate: (workspacePath: string, id: string, updates: any) => Promise<any>;
     };
   }
 }

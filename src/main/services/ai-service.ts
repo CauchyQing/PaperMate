@@ -50,7 +50,7 @@ export async function chatSync(
     throw new Error(`AI 请求失败 (${res.status}): ${body}`);
   }
 
-  const data = await res.json();
+  const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
   return data.choices?.[0]?.message?.content ?? '';
 }
 
