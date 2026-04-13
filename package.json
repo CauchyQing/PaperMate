@@ -1,6 +1,6 @@
 {
   "name": "papermate",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Interactive paper reading assistant with AI integration",
   "main": "dist/main/main/index.js",
   "author": "PaperMate Team",
