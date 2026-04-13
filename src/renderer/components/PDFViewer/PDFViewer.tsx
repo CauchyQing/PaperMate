@@ -7,8 +7,9 @@ import { useWorkspaceStore } from '../../stores/workspace';
 import { useAnnotationStore } from '../../stores/annotation';
 import SelectionToolbar from '../SelectionToolbar/SelectionToolbar';
 import { PageAnnotations } from './PageAnnotations';
+import { AnnotationEditPopover } from './AnnotationEditPopover';
 import { AnnotationCreateDialog } from '../AnnotationDialog/AnnotationCreateDialog';
-import type { AnnotationType } from '../../../shared/types/annotation';
+import type { Annotation, AnnotationType } from '../../../shared/types/annotation';
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
 
@@ -29,7 +30,7 @@ const PDFViewer: React.FC = () => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const { currentWorkspace } = useWorkspaceStore();
   const { createConversation, sendMessage, activeConversationId, setPrefillText } = useConversationStore();
-  const { annotations, loadAnnotations, createAnnotation, deleteAnnotation } = useAnnotationStore();
+  const { annotations, loadAnnotations, createAnnotation, updateAnnotation, deleteAnnotation } = useAnnotationStore();
   const workspacePath = currentWorkspace?.path || '';
 
   // Virtual scrolling state - only render visible pages
@@ -47,6 +48,13 @@ const PDFViewer: React.FC = () => {
 
   // In-PDF annotation panel visibility
   const [showAnnotationPanel, setShowAnnotationPanel] = useState(false);
+
+  // Inline annotation editor state
+  const [editingAnnotation, setEditingAnnotation] = useState<{
+    annotation: Annotation;
+    pageNumber: number;
+    rect: { left: number; top: number; width: number; height: number };
+  } | null>(null);
 
   const activeFile = openFiles.find((f) => f.id === activeFileId);
 
@@ -425,6 +433,42 @@ const PDFViewer: React.FC = () => {
     });
   };
 
+  const handleAnnotationClick = (
+    anno: Annotation,
+    rect: { left: number; top: number; width: number; height: number },
+    pageNum: number
+  ) => {
+    setEditingAnnotation({ annotation: anno, pageNumber: pageNum, rect });
+  };
+
+  const handleUpdateAnnotation = async (id: string, title: string, comment: string) => {
+    if (!workspacePath) return;
+    await updateAnnotation(workspacePath, id, {
+      title: title.trim() || undefined,
+      comment: comment.trim() || undefined,
+    });
+    setEditingAnnotation(null);
+  };
+
+  const handleDeleteAnnotation = async (id: string) => {
+    if (!workspacePath) return;
+    await deleteAnnotation(workspacePath, id);
+    setEditingAnnotation(null);
+  };
+
+  // Close editor when clicking outside
+  useEffect(() => {
+    if (!editingAnnotation) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('.annotation-edit-popover')) {
+        setEditingAnnotation(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [editingAnnotation]);
+
   const paperAnnotations = useMemo(() => {
     if (!activeFile) return [];
     return annotations
@@ -569,11 +613,20 @@ const PDFViewer: React.FC = () => {
                     <PageAnnotations
                       annotations={useAnnotationStore.getState().getAnnotationsByPage(activeFile.path, pageNum)}
                       scale={scale}
-                      onAnnotationClick={(anno) => {
-                        // Scroll to annotation
-                        jumpToAnnotation(anno);
+                      onAnnotationClick={(anno, rect) => {
+                        handleAnnotationClick(anno, rect, pageNum);
                       }}
                     />
+                    {editingAnnotation &&
+                      editingAnnotation.pageNumber === pageNum && (
+                        <AnnotationEditPopover
+                          annotation={editingAnnotation.annotation}
+                          rect={editingAnnotation.rect}
+                          onSave={handleUpdateAnnotation}
+                          onDelete={handleDeleteAnnotation}
+                          onClose={() => setEditingAnnotation(null)}
+                        />
+                      )}
                   </div>
                 ))}
               </Document>
