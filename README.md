@@ -2,7 +2,7 @@
 
 PaperMate 是一款基于 Electron 的桌面端学术论文阅读工具，集成 AI 助手功能，帮助研究人员高效阅读、理解和管理学术论文。
 
-![版本](https://img.shields.io/badge/version-1.0.0-blue)
+![版本](https://img.shields.io/badge/version-1.1.0-blue)
 ![许可证](https://img.shields.io/badge/license-CC%20BY--NC%204.0-orange)
 
 ## 功能特性
@@ -16,6 +16,7 @@ PaperMate 是一款基于 Electron 的桌面端学术论文阅读工具，集成
 - **截图提问** - 框选 PDF 区域截图，AI 视觉理解并回答
 - **多维度分类** - 支持年份、期刊、主题标签、关键词等多维度分类管理
 - **历史会话** - 自动保存对话历史，支持搜索、重命名、删除
+- **标记功能** - 高亮/下划线标记 PDF 内容，添加批注笔记，侧边栏快速导航（v1.1.0 新增）
 
 ### AI 功能
 
