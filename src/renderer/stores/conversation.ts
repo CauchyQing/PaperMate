@@ -12,6 +12,7 @@ interface ConversationState {
   activeRequestId: string | null;
   currentWorkspacePath: string | null;
   error: string | null;
+  prefillText: string | null; // Text to prefill in input box
 
   // Actions
   loadConversations: (workspacePath: string) => Promise<void>;
@@ -22,6 +23,8 @@ interface ConversationState {
   stopStreaming: () => Promise<void>;
   handleStreamEvent: (event: ChatStreamEvent) => void;
   clearError: () => void;
+  setPrefillText: (text: string | null) => void;
+  updateConversationTitle: (workspacePath: string, id: string, newTitle: string) => Promise<void>;
 }
 
 let unsubStreamEvent: (() => void) | null = null;
@@ -36,6 +39,9 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
   activeRequestId: null,
   currentWorkspacePath: null,
   error: null,
+  prefillText: null,
+
+  setPrefillText: (text: string | null) => set({ prefillText: text }),
 
   loadConversations: async (workspacePath: string) => {
     const conversations = await window.electronAPI.conversationList(workspacePath);
@@ -75,7 +81,7 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
   },
 
   sendMessage: async (workspacePath: string, content: string, metadata?: Message['metadata']) => {
-    const { activeConversationId } = get();
+    const { activeConversationId, messages } = get();
     if (!activeConversationId) return;
 
     // Save user message
@@ -86,13 +92,29 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
       contentType: metadata?.imageData ? 'mixed' : 'text',
       metadata,
     });
-    set(s => ({ messages: [...s.messages, userMsg] }));
 
-    // Build messages array for AI
-    const history = get().messages.map(m => ({
-      role: m.role as 'user' | 'assistant',
-      content: m.content,
-    }));
+    // Update local state with new message
+    const updatedMessages = [...messages, userMsg];
+    set({ messages: updatedMessages });
+
+    // Build messages array for AI (must include user message)
+    const history = updatedMessages.map(m => {
+      // Handle multimodal messages (with image)
+      if (m.metadata?.imageData) {
+        return {
+          role: m.role as 'user' | 'assistant',
+          content: [
+            { type: 'image_url', image_url: { url: m.metadata.imageData } },
+            { type: 'text', text: m.content },
+          ],
+        };
+      }
+      // Regular text message
+      return {
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+      };
+    });
 
     // Subscribe to stream events
     if (unsubStreamEvent) unsubStreamEvent();
@@ -100,13 +122,14 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
       get().handleStreamEvent(event);
     });
 
-    set({ isStreaming: true, streamingContent: '', error: null });
+    // Generate request ID locally so we can recognize stream events immediately
+    const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    set({ isStreaming: true, streamingContent: '', error: null, activeRequestId: requestId });
 
     try {
-      const requestId = await window.electronAPI.aiChat(history);
-      set({ activeRequestId: requestId });
+      await window.electronAPI.aiChat(history, { requestId });
     } catch (err: any) {
-      set({ isStreaming: false, error: err.message || 'AI 请求失败' });
+      set({ isStreaming: false, error: err.message || 'AI 请求失败', activeRequestId: null });
     }
   },
 
@@ -150,4 +173,18 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
   },
 
   clearError: () => set({ error: null }),
+
+  updateConversationTitle: async (workspacePath: string, id: string, newTitle: string) => {
+    try {
+      await window.electronAPI.conversationUpdate(workspacePath, id, { topic: newTitle });
+      // Update local state
+      set(s => ({
+        conversations: s.conversations.map(c =>
+          c.id === id ? { ...c, topic: newTitle } : c
+        ),
+      }));
+    } catch (error) {
+      console.error('Failed to update conversation title:', error);
+    }
+  },
 }));

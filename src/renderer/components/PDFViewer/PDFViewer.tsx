@@ -2,6 +2,9 @@ import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf';
 import { ZoomIn, ZoomOut, RotateCw, FileText } from 'lucide-react';
 import { useFileStore } from '../../stores/file';
+import { useConversationStore } from '../../stores/conversation';
+import { useWorkspaceStore } from '../../stores/workspace';
+import SelectionToolbar from '../SelectionToolbar/SelectionToolbar';
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
 
@@ -17,6 +20,9 @@ const PDFViewer: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [pdfData, setPdfData] = useState<Uint8Array | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const { currentWorkspace } = useWorkspaceStore();
+  const { createConversation, sendMessage, activeConversationId, setPrefillText } = useConversationStore();
+  const workspacePath = currentWorkspace?.path || '';
 
   const activeFile = openFiles.find((f) => f.id === activeFileId);
 
@@ -95,6 +101,46 @@ const PDFViewer: React.FC = () => {
     return Array.from({ length: numPages }, (_, i) => i + 1);
   }, [numPages]);
 
+  // Handle text selection actions
+  const handleTranslate = async (text: string) => {
+    if (!workspacePath) return;
+    const prompt = `请将以下学术文献内容翻译成中文，保持学术性和准确性：\n\n${text}`;
+    if (!activeConversationId) {
+      await createConversation(workspacePath, {
+        topic: `翻译: ${text.slice(0, 20)}...`,
+        paperTitle: activeFile?.name,
+      });
+    }
+    await sendMessage(workspacePath, prompt);
+  };
+
+  const handleExplain = async (text: string) => {
+    if (!workspacePath) return;
+    const prompt = `请解释以下学术文献内容的含义，用通俗易懂的语言说明：\n\n${text}`;
+    if (!activeConversationId) {
+      await createConversation(workspacePath, {
+        topic: `解释: ${text.slice(0, 20)}...`,
+        paperTitle: activeFile?.name,
+      });
+    }
+    await sendMessage(workspacePath, prompt);
+  };
+
+  const handleAsk = async (text: string, prefillText?: string) => {
+    if (!workspacePath) return;
+    // Create conversation if none exists
+    if (!activeConversationId) {
+      await createConversation(workspacePath, {
+        topic: `问答: ${text.slice(0, 20)}...`,
+        paperTitle: activeFile?.name,
+      });
+    }
+    // Set prefill text to populate the input box instead of sending immediately
+    if (prefillText) {
+      setPrefillText(prefillText);
+    }
+  };
+
   if (!activeFile) {
     return (
       <div className="flex-1 flex items-center justify-center bg-gray-100 dark:bg-gray-800">
@@ -155,7 +201,7 @@ const PDFViewer: React.FC = () => {
       {/* PDF Content - Continuous Scroll */}
       <div
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto overflow-x-hidden scroll-smooth"
+        className="flex-1 overflow-y-auto overflow-x-hidden scroll-smooth relative"
       >
         {error ? (
           <div className="flex items-center justify-center h-full">
@@ -199,6 +245,13 @@ const PDFViewer: React.FC = () => {
             </Document>
           </div>
         )}
+
+        <SelectionToolbar
+          containerRef={scrollContainerRef}
+          onTranslate={handleTranslate}
+          onExplain={handleExplain}
+          onAsk={handleAsk}
+        />
       </div>
     </div>
   );

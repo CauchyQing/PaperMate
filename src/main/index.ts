@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, desktopCapturer } from 'electron';
 import * as path from 'path';
 import { configService } from './services/config';
 import {
@@ -16,6 +16,8 @@ import {
 import { getPaperStore } from './services/paper-store';
 import { chatStream, cancelRequest, testConnection } from './services/ai-service';
 import { getConversationStore } from './services/conversation-store';
+import { estimateTokens, splitIntoChunks, buildContextWindow } from './services/context-manager';
+import { analyzePaper, createAnalysisPrompt } from './services/paper-analysis';
 import type { AIProviderConfig } from '../shared/types/ai';
 
 // Keep a global reference of the window object
@@ -306,7 +308,7 @@ ipcMain.handle('ai:testConnection', async (_event, provider: AIProviderConfig) =
   return testConnection(provider);
 });
 
-ipcMain.handle('ai:chat', async (_event, messages: any[], options?: any) => {
+ipcMain.handle('ai:chat', async (_event, messages: any[], options?: { requestId?: string; temperature?: number; maxTokens?: number; stream?: boolean; providerId?: string }) => {
   if (!mainWindow) throw new Error('窗口未就绪');
   return chatStream(mainWindow, messages, options);
 });
@@ -356,6 +358,30 @@ ipcMain.handle('message:update', async (_event, workspacePath: string, id: strin
   const store = getConversationStore(workspacePath);
   await store.init();
   return store.updateMessage(id, updates);
+});
+
+// Context management IPC handlers
+ipcMain.handle('context:estimateTokens', (_event, text: string) => {
+  return estimateTokens(text);
+});
+
+ipcMain.handle('context:splitIntoChunks', (_event, text: string, maxTokensPerChunk?: number) => {
+  return splitIntoChunks(text, maxTokensPerChunk);
+});
+
+ipcMain.handle('context:buildWindow', (_event, messages: any[], maxTokens?: number, reserveTokens?: number) => {
+  return buildContextWindow(messages, maxTokens, reserveTokens);
+});
+
+// Paper analysis IPC handler
+ipcMain.handle('paper:analyze', async (_event, paper: any, existingTags: any[]) => {
+  const prompt = createAnalysisPrompt(paper);
+  return analyzePaper(prompt, existingTags);
+});
+
+// Desktop capturer IPC handler
+ipcMain.handle('desktopCapturer:getSources', async (_event, options: any) => {
+  return desktopCapturer.getSources(options);
 });
 
 console.log('[Main] PaperMate main process started');

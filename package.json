@@ -1,10 +1,10 @@
 {
   "name": "papermate",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Interactive paper reading assistant with AI integration",
   "main": "dist/main/main/index.js",
   "author": "PaperMate Team",
-  "license": "MIT",
+  "license": "CC-BY-NC-4.0",
   "scripts": {
     "dev": "npm run build:main && concurrently \"npm run dev:main\" \"npm run dev:renderer\"",
     "dev:main": "electron dist/main/main/index.js",

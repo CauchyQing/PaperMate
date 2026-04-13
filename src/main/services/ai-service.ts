@@ -61,11 +61,11 @@ export async function chatSync(
 export async function chatStream(
   win: BrowserWindow,
   messages: ChatMessage[],
-  options?: ChatOptions & { providerId?: string }
+  options?: ChatOptions & { providerId?: string; requestId?: string }
 ): Promise<string> {
   const provider = getProvider(options?.providerId);
   const model = options?.model || provider.defaultModel;
-  const requestId = generateRequestId();
+  const requestId = options?.requestId || generateRequestId();
   const controller = new AbortController();
   activeRequests.set(requestId, controller);
 
@@ -92,7 +92,7 @@ export async function chatStream(
         const body = await res.text();
         win.webContents.send('ai:stream-event', {
           type: 'error',
-          error: `AI 请求失败 (${res.status}): ${body}`,
+          error: `AI 请求失败 (${res.status}): ${body.slice(0, 200)}`,
           requestId,
         });
         return;
@@ -132,7 +132,12 @@ export async function chatStream(
           }
           try {
             const parsed = JSON.parse(data);
-            const content = parsed.choices?.[0]?.delta?.content;
+            // Try different response formats (OpenAI compatible + variants)
+            const content = parsed.choices?.[0]?.delta?.content
+              || parsed.choices?.[0]?.message?.content
+              || parsed.content
+              || parsed.text
+              || parsed.response;
             if (content) {
               win.webContents.send('ai:stream-event', {
                 type: 'chunk',

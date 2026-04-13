@@ -55,7 +55,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   aiDeleteProvider: (providerId: string) => ipcRenderer.invoke('ai:deleteProvider', providerId),
   aiSetActive: (providerId: string) => ipcRenderer.invoke('ai:setActive', providerId),
   aiTestConnection: (provider: any) => ipcRenderer.invoke('ai:testConnection', provider),
-  aiChat: (messages: any[], options?: any) => ipcRenderer.invoke('ai:chat', messages, options),
+  aiChat: (messages: any[], options?: { requestId?: string; temperature?: number; maxTokens?: number; stream?: boolean; providerId?: string }) => ipcRenderer.invoke('ai:chat', messages, options),
   aiStop: (requestId: string) => ipcRenderer.invoke('ai:stop', requestId),
   onAIStreamEvent: (callback: (event: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);
@@ -71,6 +71,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   messageList: (workspacePath: string, conversationId: string) => ipcRenderer.invoke('message:list', workspacePath, conversationId),
   messageAdd: (workspacePath: string, message: any) => ipcRenderer.invoke('message:add', workspacePath, message),
   messageUpdate: (workspacePath: string, id: string, updates: any) => ipcRenderer.invoke('message:update', workspacePath, id, updates),
+
+  // Context management operations
+  contextEstimateTokens: (text: string) => ipcRenderer.invoke('context:estimateTokens', text),
+  contextSplitIntoChunks: (text: string, maxTokensPerChunk?: number) => ipcRenderer.invoke('context:splitIntoChunks', text, maxTokensPerChunk),
+  contextBuildWindow: (messages: any[], maxTokens?: number, reserveTokens?: number) => ipcRenderer.invoke('context:buildWindow', messages, maxTokens, reserveTokens),
+
+  // Paper analysis
+  paperAnalyze: (paper: any, existingTags: any[]) => ipcRenderer.invoke('paper:analyze', paper, existingTags),
+
+  // Desktop capturer
+  desktopCapturerGetSources: (options: any) => ipcRenderer.invoke('desktopCapturer:getSources', options),
 });
 
 // TypeScript declarations
@@ -106,7 +117,7 @@ declare global {
       aiDeleteProvider: (providerId: string) => Promise<boolean>;
       aiSetActive: (providerId: string) => Promise<boolean>;
       aiTestConnection: (provider: any) => Promise<{ success: boolean; error?: string }>;
-      aiChat: (messages: any[], options?: any) => Promise<string>;
+      aiChat: (messages: any[], options?: { requestId?: string; temperature?: number; maxTokens?: number; stream?: boolean; providerId?: string }) => Promise<string>;
       aiStop: (requestId: string) => Promise<boolean>;
       onAIStreamEvent: (callback: (event: any) => void) => () => void;
       // Conversation operations
@@ -117,6 +128,14 @@ declare global {
       messageList: (workspacePath: string, conversationId: string) => Promise<any[]>;
       messageAdd: (workspacePath: string, message: any) => Promise<any>;
       messageUpdate: (workspacePath: string, id: string, updates: any) => Promise<any>;
+      // Context management operations
+      contextEstimateTokens: (text: string) => Promise<number>;
+      contextSplitIntoChunks: (text: string, maxTokensPerChunk?: number) => Promise<{ chunks: string[]; totalTokens: number }>;
+      contextBuildWindow: (messages: any[], maxTokens?: number, reserveTokens?: number) => Promise<{ messages: any[]; estimatedTokens: number }>;
+      // Paper analysis
+      paperAnalyze: (paper: any, existingTags: any[]) => Promise<{ suggestedTitle: string; suggestedJournal?: string; suggestedYear?: number; suggestedTopics: string[]; suggestedKeywords: string[]; summary: string }>;
+      // Desktop capturer
+      desktopCapturerGetSources: (options: any) => Promise<any[]>;
     };
   }
 }

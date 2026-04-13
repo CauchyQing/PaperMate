@@ -14,6 +14,7 @@ interface MessageListProps {
 
 const MessageBubble: React.FC<{ message: Message }> = ({ message }) => {
   const isUser = message.role === 'user';
+  const hasImage = message.metadata?.imageData;
   return (
     <div className={`flex gap-2 px-3 py-2 ${isUser ? 'flex-row-reverse' : ''}`}>
       <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${
@@ -29,6 +30,13 @@ const MessageBubble: React.FC<{ message: Message }> = ({ message }) => {
           ? 'bg-primary-600 text-white'
           : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100'
       }`}>
+        {hasImage && (
+          <img
+            src={message.metadata?.imageData}
+            alt="图片"
+            className="max-h-32 w-auto rounded-lg mb-2 border border-white/30"
+          />
+        )}
         {isUser ? (
           <p className="whitespace-pre-wrap">{message.content}</p>
         ) : (

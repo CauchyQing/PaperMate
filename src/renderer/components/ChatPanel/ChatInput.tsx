@@ -1,26 +1,42 @@
-import React, { useState, useRef, useCallback } from 'react';
-import { Send, Square } from 'lucide-react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { Send, Square, X, Image as ImageIcon } from 'lucide-react';
 
 interface ChatInputProps {
-  onSend: (content: string) => void;
+  onSend: (content: string, imageData?: string) => void;
   isStreaming: boolean;
   onStop: () => void;
+  pendingImage?: string | null;
+  onClearImage?: () => void;
+  initialText?: string;
 }
 
-const ChatInput: React.FC<ChatInputProps> = ({ onSend, isStreaming, onStop }) => {
-  const [input, setInput] = useState('');
+const ChatInput: React.FC<ChatInputProps> = ({ onSend, isStreaming, onStop, pendingImage, onClearImage, initialText = '' }) => {
+  const [input, setInput] = useState(initialText);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Update input when initialText changes (e.g., when screenshot prompt is set)
+  useEffect(() => {
+    if (initialText) {
+      setInput(initialText);
+      // Auto-resize textarea
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+        textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 120) + 'px';
+      }
+    }
+  }, [initialText]);
 
   const handleSend = useCallback(() => {
     const trimmed = input.trim();
-    if (!trimmed || isStreaming) return;
-    onSend(trimmed);
+    if ((!trimmed && !pendingImage) || isStreaming) return;
+    onSend(trimmed, pendingImage || undefined);
     setInput('');
+    onClearImage?.();
     // Reset textarea height
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
-  }, [input, isStreaming, onSend]);
+  }, [input, isStreaming, onSend, pendingImage, onClearImage]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -39,13 +55,30 @@ const ChatInput: React.FC<ChatInputProps> = ({ onSend, isStreaming, onStop }) =>
 
   return (
     <div className="p-3 border-t border-gray-200 dark:border-gray-700 flex-shrink-0">
+      {/* Pending Image Preview */}
+      {pendingImage && (
+        <div className="mb-2 relative inline-block">
+          <img
+            src={pendingImage}
+            alt="截图预览"
+            className="h-16 w-auto rounded-lg border border-gray-300 dark:border-gray-600"
+          />
+          <button
+            onClick={onClearImage}
+            className="absolute -top-1 -right-1 p-0.5 bg-red-500 text-white rounded-full hover:bg-red-600"
+            title="删除图片"
+          >
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+      )}
       <div className="flex items-end gap-2">
         <textarea
           ref={textareaRef}
           value={input}
           onChange={handleInput}
           onKeyDown={handleKeyDown}
-          placeholder="输入消息... (Shift+Enter 换行)"
+          placeholder={pendingImage ? "输入消息（可选）..." : "输入消息... (Shift+Enter 换行)"}
           rows={1}
           className="flex-1 resize-none px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent placeholder-gray-400"
           style={{ maxHeight: 120 }}
@@ -58,7 +91,7 @@ const ChatInput: React.FC<ChatInputProps> = ({ onSend, isStreaming, onStop }) =>
           </button>
         ) : (
           <button onClick={handleSend}
-            disabled={!input.trim()}
+            disabled={!input.trim() && !pendingImage}
             className="p-2 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex-shrink-0"
             title="发送">
             <Send className="w-4 h-4" />
