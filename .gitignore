@@ -69,6 +69,7 @@ temp/
 # Claude Code
 .claude/
 需求.md
+CLAUDE.md
 # Optional: Ignore user data directory (uncomment if needed)
 # user-data/
 

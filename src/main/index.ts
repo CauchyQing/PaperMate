@@ -16,6 +16,7 @@ import {
 import { getPaperStore } from './services/paper-store';
 import { chatStream, cancelRequest, testConnection } from './services/ai-service';
 import { getConversationStore } from './services/conversation-store';
+import { getAnnotationStore } from './services/annotation-store';
 import { estimateTokens, splitIntoChunks, buildContextWindow } from './services/context-manager';
 import { analyzePaper, createAnalysisPrompt } from './services/paper-analysis';
 import type { AIProviderConfig } from '../shared/types/ai';
@@ -375,6 +376,37 @@ ipcMain.handle('message:update', async (_event, workspacePath: string, id: strin
   const store = getConversationStore(workspacePath);
   await store.init();
   return store.updateMessage(id, updates);
+});
+
+// Annotation IPC handlers
+ipcMain.handle('annotation:getAll', async (_event, workspacePath: string) => {
+  const store = getAnnotationStore(workspacePath);
+  await store.init();
+  return store.getAll();
+});
+
+ipcMain.handle('annotation:getByPaper', async (_event, workspacePath: string, paperId: string) => {
+  const store = getAnnotationStore(workspacePath);
+  await store.init();
+  return store.getByPaper(paperId);
+});
+
+ipcMain.handle('annotation:create', async (_event, workspacePath: string, data: any) => {
+  const store = getAnnotationStore(workspacePath);
+  await store.init();
+  return store.create(data);
+});
+
+ipcMain.handle('annotation:update', async (_event, workspacePath: string, id: string, updates: any) => {
+  const store = getAnnotationStore(workspacePath);
+  await store.init();
+  return store.update(id, updates);
+});
+
+ipcMain.handle('annotation:delete', async (_event, workspacePath: string, id: string) => {
+  const store = getAnnotationStore(workspacePath);
+  await store.init();
+  return store.delete(id);
 });
 
 // Context management IPC handlers

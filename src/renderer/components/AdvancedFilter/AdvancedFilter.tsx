@@ -104,7 +104,7 @@ const AdvancedFilter: React.FC = () => {
 
   const handlePaperClick = (paper: Paper) => {
     const pdfFile = {
-      id: paper.id,
+      id: paper.filePath,
       name: paper.fileName,
       path: paper.filePath,
       relativePath: paper.filePath,

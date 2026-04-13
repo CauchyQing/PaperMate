@@ -33,7 +33,7 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({ node, level, onEditPaper })
     } else if (isPDF) {
       // 打开PDF文件
       const pdfFile = {
-        id: node.id,
+        id: node.path,
         name: node.name,
         path: node.path,
         relativePath: node.id,

@@ -42,10 +42,6 @@ export async function createWorkspace(
     await fs.mkdir(path.join(workspaceDir, 'cache', 'thumbnails'), { recursive: true });
     await fs.mkdir(path.join(workspaceDir, 'cache', 'snapshots'), { recursive: true });
 
-    // Create default papers directory
-    const papersDir = path.join(folderPath, 'papers');
-    await fs.mkdir(papersDir, { recursive: true });
-
     // Create settings file
     const settings: WorkspaceSettings = {
       version: '1.0.0',

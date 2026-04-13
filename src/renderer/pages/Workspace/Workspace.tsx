@@ -7,18 +7,19 @@ import PDFViewer from '../../components/PDFViewer/PDFViewer';
 import TabBar from '../../components/TabBar/TabBar';
 import ResizableSplitter from '../../components/ResizableSplitter/ResizableSplitter';
 import ChatPanel from '../../components/ChatPanel/ChatPanel';
-import { Folder, Layers, Filter as FilterIcon } from 'lucide-react';
+import { Folder, Layers, Filter as FilterIcon, Bookmark } from 'lucide-react';
+import AnnotationSidebar from '../../components/AnnotationSidebar/AnnotationSidebar';
 
 const MIN_SIDEBAR_WIDTH = 180;
 const MAX_SIDEBAR_WIDTH = 400;
-const MIN_CHAT_WIDTH = 280;
-const MAX_CHAT_WIDTH = 500;
+const MIN_CHAT_WIDTH = 200;
+const MAX_CHAT_WIDTH = 600;
 
 const Workspace: React.FC = () => {
   const { currentWorkspace, closeWorkspace } = useWorkspaceStore();
 
-  // View state: 'files' | 'categories' | 'filter'
-  const [sidebarView, setSidebarView] = useState<'files' | 'categories' | 'filter'>('files');
+  // View state: 'files' | 'categories' | 'filter' | 'annotations'
+  const [sidebarView, setSidebarView] = useState<'files' | 'categories' | 'filter' | 'annotations'>('files');
 
   // Resizable widths
   const [fileBrowserWidth, setFileBrowserWidth] = useState(280);
@@ -104,6 +105,17 @@ const Workspace: React.FC = () => {
               <FilterIcon className="w-4 h-4" />
               筛选
             </button>
+            <button
+              onClick={() => setSidebarView('annotations')}
+              className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium transition-colors ${
+                sidebarView === 'annotations'
+                  ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400 border-b-2 border-primary-600'
+                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+              }`}
+            >
+              <Bookmark className="w-4 h-4" />
+              标记
+            </button>
           </div>
 
           {/* Sidebar Content */}
@@ -111,6 +123,7 @@ const Workspace: React.FC = () => {
             {sidebarView === 'files' && <FileBrowser />}
             {sidebarView === 'categories' && <CategoryView />}
             {sidebarView === 'filter' && <AdvancedFilter />}
+            {sidebarView === 'annotations' && <AnnotationSidebar />}
           </div>
         </div>
 

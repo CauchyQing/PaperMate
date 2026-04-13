@@ -103,6 +103,9 @@ export interface Message {
   timestamp: number;
 }
 
+// Annotation types
+export * from './annotation';
+
 // Highlight types
 export interface Highlight {
   id: string;

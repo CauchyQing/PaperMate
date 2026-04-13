@@ -80,6 +80,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Paper analysis
   paperAnalyze: (paper: any, existingTags: any[]) => ipcRenderer.invoke('paper:analyze', paper, existingTags),
 
+  // Annotation operations
+  annotationGetAll: (workspacePath: string) => ipcRenderer.invoke('annotation:getAll', workspacePath),
+  annotationGetByPaper: (workspacePath: string, paperId: string) => ipcRenderer.invoke('annotation:getByPaper', workspacePath, paperId),
+  annotationCreate: (workspacePath: string, annotation: any) => ipcRenderer.invoke('annotation:create', workspacePath, annotation),
+  annotationUpdate: (workspacePath: string, id: string, updates: any) => ipcRenderer.invoke('annotation:update', workspacePath, id, updates),
+  annotationDelete: (workspacePath: string, id: string) => ipcRenderer.invoke('annotation:delete', workspacePath, id),
+
   // Desktop capturer (fallback)
   desktopCapturerGetSources: (options: any) => ipcRenderer.invoke('desktopCapturer:getSources', options),
   // Window capture - captures app window region without screen recording permission
@@ -137,6 +144,12 @@ declare global {
       contextBuildWindow: (messages: any[], maxTokens?: number, reserveTokens?: number) => Promise<{ messages: any[]; estimatedTokens: number }>;
       // Paper analysis
       paperAnalyze: (paper: any, existingTags: any[]) => Promise<{ suggestedTitle: string; suggestedJournal?: string; suggestedYear?: number; suggestedTopics: string[]; suggestedKeywords: string[]; summary: string }>;
+      // Annotation operations
+      annotationGetAll: (workspacePath: string) => Promise<any[]>;
+      annotationGetByPaper: (workspacePath: string, paperId: string) => Promise<any[]>;
+      annotationCreate: (workspacePath: string, annotation: any) => Promise<any>;
+      annotationUpdate: (workspacePath: string, id: string, updates: any) => Promise<any>;
+      annotationDelete: (workspacePath: string, id: string) => Promise<boolean>;
       // Desktop capturer
       desktopCapturerGetSources: (options: any) => Promise<any[]>;
       // Window capture

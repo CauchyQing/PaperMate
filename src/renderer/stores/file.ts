@@ -108,13 +108,16 @@ export const useFileStore = create<FileState>()((set, get) => ({
 
   openFile: (file: PDFFile) => {
     const { openFiles } = get();
-    // Check if already open
-    if (!openFiles.find((f) => f.id === file.id)) {
+    // Check if already open by id or path
+    const existing = openFiles.find((f) => f.id === file.id || f.path === file.path);
+    if (!existing) {
       set((state) => ({
         openFiles: [...state.openFiles, file],
       }));
+      set({ activeFileId: file.id });
+    } else {
+      set({ activeFileId: existing.id });
     }
-    set({ activeFileId: file.id });
   },
 
   closeFile: (fileId: string) => {

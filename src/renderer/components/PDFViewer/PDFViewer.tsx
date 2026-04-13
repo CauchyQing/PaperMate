@@ -1,10 +1,14 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
-import { ZoomIn, ZoomOut, RotateCw, FileText } from 'lucide-react';
+import { ZoomIn, ZoomOut, RotateCw, FileText, Bookmark } from 'lucide-react';
 import { useFileStore } from '../../stores/file';
 import { useConversationStore } from '../../stores/conversation';
 import { useWorkspaceStore } from '../../stores/workspace';
+import { useAnnotationStore } from '../../stores/annotation';
 import SelectionToolbar from '../SelectionToolbar/SelectionToolbar';
+import { PageAnnotations } from './PageAnnotations';
+import { AnnotationCreateDialog } from '../AnnotationDialog/AnnotationCreateDialog';
+import type { AnnotationType } from '../../../shared/types/annotation';
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
 
@@ -25,6 +29,7 @@ const PDFViewer: React.FC = () => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const { currentWorkspace } = useWorkspaceStore();
   const { createConversation, sendMessage, activeConversationId, setPrefillText } = useConversationStore();
+  const { annotations, loadAnnotations, createAnnotation, deleteAnnotation } = useAnnotationStore();
   const workspacePath = currentWorkspace?.path || '';
 
   // Virtual scrolling state - only render visible pages
@@ -32,7 +37,27 @@ const PDFViewer: React.FC = () => {
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const observerRef = useRef<IntersectionObserver | null>(null);
 
+  // Annotation creation dialog state
+  const [creatingAnnotation, setCreatingAnnotation] = useState<{
+    text: string;
+    rects: Array<{ left: number; top: number; width: number; height: number }>;
+    pageNumber: number;
+    defaultType: AnnotationType;
+  } | null>(null);
+
+  // In-PDF annotation panel visibility
+  const [showAnnotationPanel, setShowAnnotationPanel] = useState(false);
+
   const activeFile = openFiles.find((f) => f.id === activeFileId);
+
+  // Global jump target for sidebar navigation
+  const globalPendingJump = useRef<{ paperId: string | null; pageNumber: number | null }>({ paperId: null, pageNumber: null });
+  useEffect(() => {
+    (window as any).setAnnotationJumpTarget = (paperId: string, pageNumber: number) => {
+      console.log('[PDFViewer] Jump target set:', { paperId, pageNumber });
+      globalPendingJump.current = { paperId, pageNumber };
+    };
+  }, []);
 
   // Memoize options for CMap support - use local files
   const documentOptions = useMemo(() => ({
@@ -50,12 +75,16 @@ const PDFViewer: React.FC = () => {
 
   // Load PDF file when active file changes
   useEffect(() => {
+    console.log('[PDFViewer] activeFile changed:', activeFile?.id, activeFile?.name);
     if (!activeFile) {
       setPdfData(null);
       setNumPages(0);
       setVisibleRange({ start: 1, end: 3 });
       return;
     }
+
+    setPdfData(null);
+    setNumPages(0);
 
     const loadPdf = async () => {
       setIsLoading(true);
@@ -92,15 +121,63 @@ const PDFViewer: React.FC = () => {
     loadPdf();
   }, [activeFile]);
 
+  // Load annotations when active file changes
+  useEffect(() => {
+    if (activeFile && workspacePath) {
+      loadAnnotations(workspacePath, activeFile.path);
+    }
+  }, [activeFile, workspacePath, loadAnnotations]);
+
+  // Handle pending jump from sidebar for already-loaded documents
+  useEffect(() => {
+    console.log('[PDFViewer] Pending jump check:', {
+      hasActiveFile: !!activeFile,
+      activeFileId: activeFile?.id,
+      pendingPaperId: globalPendingJump.current.paperId,
+      pendingPageNumber: globalPendingJump.current.pageNumber,
+      hasPdfData: !!pdfData,
+      numPages,
+    });
+    if (
+      activeFile &&
+      (globalPendingJump.current.paperId === activeFile.id || globalPendingJump.current.paperId === activeFile.path) &&
+      globalPendingJump.current.pageNumber &&
+      pdfData &&
+      numPages > 0
+    ) {
+      const pageNumber = globalPendingJump.current.pageNumber;
+      globalPendingJump.current.paperId = null;
+      globalPendingJump.current.pageNumber = null;
+      console.log('[PDFViewer] Executing jump for already-loaded doc, page:', pageNumber);
+      jumpToAnnotation({ pageNumber });
+    }
+  }, [activeFile, pdfData, numPages]);
+
   const onDocumentLoadSuccess = useCallback(({ numPages }: { numPages: number }) => {
+    console.log('[PDFViewer] Document loaded, numPages:', numPages, 'activeFile:', activeFile?.id);
     setNumPages(numPages);
     setIsLoading(false);
     setError(null);
-    // Scroll to top when new document loads
+
+    // Handle pending jump after new document loads
+    if (
+      activeFile &&
+      (globalPendingJump.current.paperId === activeFile.id || globalPendingJump.current.paperId === activeFile.path) &&
+      globalPendingJump.current.pageNumber
+    ) {
+      const pageNumber = globalPendingJump.current.pageNumber;
+      globalPendingJump.current.paperId = null;
+      globalPendingJump.current.pageNumber = null;
+      console.log('[PDFViewer] Executing jump after document load, page:', pageNumber);
+      jumpToAnnotation({ pageNumber });
+      return;
+    }
+
+    // Scroll to top when new document loads (only if no pending jump)
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTop = 0;
     }
-  }, []);
+  }, [activeFile]);
 
   const onDocumentLoadError = useCallback((error: Error) => {
     console.error('[PDFViewer] Document load error:', error);
@@ -152,6 +229,8 @@ const PDFViewer: React.FC = () => {
   }, [numPages, visibleRange.start, visibleRange.end]);
 
   // Update visible range when scrolling - always extend range to include current viewport
+  const pendingJumpPageRef = useRef<number | null>(null);
+
   const handleScroll = useCallback(() => {
     if (!scrollContainerRef.current || numPages === 0) return;
 
@@ -242,6 +321,117 @@ const PDFViewer: React.FC = () => {
     }
   };
 
+  // Annotation helpers
+  const findPageElementFromSelection = () => {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return null;
+    let el = selection.getRangeAt(0).commonAncestorContainer as HTMLElement;
+    if (el.nodeType === Node.TEXT_NODE) el = el.parentElement!;
+    return el.closest('[data-page-num]') as HTMLDivElement | null;
+  };
+
+  // Merge rects on the same text line to avoid duplicated underlines/overlays
+  const mergeAnnotationRects = (
+    rects: Array<{ left: number; top: number; width: number; height: number }>
+  ) => {
+    if (rects.length === 0) return [];
+    const sorted = [...rects]
+      .filter((r) => r.width > 0.5 && r.height > 0.5)
+      .sort((a, b) => a.top - b.top || a.left - b.left);
+    if (sorted.length === 0) return [];
+    const merged = [{ ...sorted[0] }];
+    for (let i = 1; i < sorted.length; i++) {
+      const last = merged[merged.length - 1];
+      const curr = sorted[i];
+      if (Math.abs(curr.top - last.top) < 4) {
+        const right = Math.max(last.left + last.width, curr.left + curr.width);
+        last.left = Math.min(last.left, curr.left);
+        last.width = right - last.left;
+        last.height = Math.max(last.height, curr.height);
+      } else {
+        merged.push({ ...curr });
+      }
+    }
+    return merged;
+  };
+
+  const handleHighlight = (text: string, rects: DOMRectList) => {
+    const pageEl = findPageElementFromSelection();
+    if (!pageEl) return;
+    const pageRect = pageEl.getBoundingClientRect();
+    const pageNumber = parseInt(pageEl.getAttribute('data-page-num') || '1', 10);
+    const rawRects = Array.from(rects).map((r) => ({
+      left: r.left - pageRect.left,
+      top: r.top - pageRect.top,
+      width: r.width,
+      height: r.height,
+    }));
+    setCreatingAnnotation({
+      text,
+      rects: mergeAnnotationRects(rawRects),
+      pageNumber,
+      defaultType: 'highlight',
+    });
+  };
+
+  const handleUnderline = (text: string, rects: DOMRectList) => {
+    const pageEl = findPageElementFromSelection();
+    if (!pageEl) return;
+    const pageRect = pageEl.getBoundingClientRect();
+    const pageNumber = parseInt(pageEl.getAttribute('data-page-num') || '1', 10);
+    const rawRects = Array.from(rects).map((r) => ({
+      left: r.left - pageRect.left,
+      top: r.top - pageRect.top,
+      width: r.width,
+      height: r.height,
+    }));
+    setCreatingAnnotation({
+      text,
+      rects: mergeAnnotationRects(rawRects),
+      pageNumber,
+      defaultType: 'underline',
+    });
+  };
+
+  const saveAnnotation = async (type: AnnotationType, color: string, title: string, comment: string) => {
+    if (!creatingAnnotation || !activeFile) return;
+
+    await createAnnotation(workspacePath, {
+      paperId: activeFile.path,
+      pageNumber: creatingAnnotation.pageNumber,
+      type,
+      color,
+      title: title || undefined,
+      comment: comment || undefined,
+      selectedText: creatingAnnotation.text,
+      rects: creatingAnnotation.rects,
+      createdScale: scale,
+    });
+
+    setCreatingAnnotation(null);
+  };
+
+  const jumpToAnnotation = (annotation: { pageNumber: number }) => {
+    console.log('[PDFViewer] jumpToAnnotation called for page:', annotation.pageNumber);
+    pendingJumpPageRef.current = annotation.pageNumber;
+    // Ensure the page is in visible range first
+    setVisibleRange((prev) => {
+      const next = {
+        start: Math.min(prev.start, annotation.pageNumber),
+        end: Math.max(prev.end, annotation.pageNumber),
+      };
+      console.log('[PDFViewer] Extending visibleRange from', prev, 'to', next);
+      return next;
+    });
+  };
+
+  const paperAnnotations = useMemo(() => {
+    if (!activeFile) return [];
+    return annotations
+      .filter((a) => a.paperId === activeFile.path)
+      .sort((a, b) => a.pageNumber - b.pageNumber || a.createdAt - b.createdAt);
+  }, [annotations, activeFile]);
+
   if (!activeFile) {
     return (
       <div className="flex-1 flex items-center justify-center bg-gray-100 dark:bg-gray-800">
@@ -267,6 +457,21 @@ const PDFViewer: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Annotation toggle */}
+          <button
+            onClick={() => setShowAnnotationPanel((v) => !v)}
+            className={`p-1.5 rounded transition-colors ${
+              showAnnotationPanel
+                ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
+                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+            }`}
+            title="标记列表"
+          >
+            <Bookmark className="w-5 h-5" />
+          </button>
+
+          <div className="w-px h-6 bg-gray-300 dark:bg-gray-700 mx-2" />
+
           {/* Zoom controls */}
           <button
             onClick={zoomOut}
@@ -300,76 +505,170 @@ const PDFViewer: React.FC = () => {
       </div>
 
       {/* PDF Content - Virtual Scrolling */}
-      <div
-        ref={scrollContainerRef}
-        onScroll={handleScroll}
-        className="flex-1 overflow-y-auto overflow-x-hidden scroll-smooth relative"
-      >
-        {error ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center text-red-500">
-              <p>Failed to load PDF</p>
-              <p className="text-sm mt-2">{error}</p>
+      <div className="flex-1 flex overflow-hidden relative">
+        <div
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto overflow-x-hidden scroll-smooth relative"
+        >
+          {error ? (
+            <div className="flex items-center justify-center h-full">
+              <div className="text-center text-red-500">
+                <p>Failed to load PDF</p>
+                <p className="text-sm mt-2">{error}</p>
+              </div>
+            </div>
+          ) : !pdfData ? (
+            <div className="flex items-center justify-center h-96">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
+            </div>
+          ) : (
+            <div className="py-8 flex flex-col items-center gap-4">
+              <Document
+                file={fileProp}
+                onLoadSuccess={onDocumentLoadSuccess}
+                onLoadError={onDocumentLoadError}
+                options={documentOptions}
+                loading={null}
+              >
+                {visiblePageNumbers.map((pageNum) => (
+                  <div
+                    key={`page-${pageNum}`}
+                    ref={(el) => {
+                      if (el) {
+                        // Only observe if not already observed
+                        if (!pageRefs.current.has(pageNum)) {
+                          pageRefs.current.set(pageNum, el);
+                          observerRef.current?.observe(el);
+                        }
+                        // Handle pending jump from sidebar
+                        if (pendingJumpPageRef.current === pageNum) {
+                          console.log('[PDFViewer] Page ref matched pending jump, scrolling to page:', pageNum);
+                          pendingJumpPageRef.current = null;
+                          setTimeout(() => {
+                            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          }, 50);
+                        }
+                      }
+                    }}
+                    data-page-num={pageNum}
+                    className="shadow-lg mb-4 last:mb-0 bg-white dark:bg-gray-900 relative"
+                  >
+                    <Page
+                      pageNumber={pageNum}
+                      scale={scale}
+                      rotate={rotation}
+                      renderTextLayer={true}
+                      renderAnnotationLayer={true}
+                      loading={
+                        <div className="w-[600px] h-[800px] flex items-center justify-center bg-gray-200 dark:bg-gray-700">
+                          <div className="animate-pulse text-gray-400">Loading page {pageNum}...</div>
+                        </div>
+                      }
+                    />
+                    <PageAnnotations
+                      annotations={useAnnotationStore.getState().getAnnotationsByPage(activeFile.path, pageNum)}
+                      scale={scale}
+                      onAnnotationClick={(anno) => {
+                        // Scroll to annotation
+                        jumpToAnnotation(anno);
+                      }}
+                    />
+                  </div>
+                ))}
+              </Document>
+              {numPages > 0 && (
+                <div className="text-sm text-gray-500 mt-4">
+                  显示第 {visibleRange.start} - {visibleRange.end} 页，共 {numPages} 页
+                </div>
+              )}
+            </div>
+          )}
+
+          <SelectionToolbar
+            containerRef={scrollContainerRef}
+            onTranslate={handleTranslate}
+            onExplain={handleExplain}
+            onAsk={handleAsk}
+            onHighlight={handleHighlight}
+            onUnderline={handleUnderline}
+          />
+        </div>
+
+        {/* In-PDF Annotation Panel */}
+        {showAnnotationPanel && (
+          <div className="w-64 bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 flex flex-col flex-shrink-0">
+            <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <span className="text-sm font-medium text-gray-800 dark:text-gray-200">本文标记</span>
+              <span className="text-xs text-gray-500 dark:text-gray-400">{paperAnnotations.length}</span>
+            </div>
+            <div className="flex-1 overflow-y-auto p-2 space-y-2">
+              {paperAnnotations.length === 0 ? (
+                <div className="text-center py-8 text-gray-500 dark:text-gray-400 text-sm">
+                  暂无标记
+                </div>
+              ) : (
+                paperAnnotations.map((anno) => (
+                  <div
+                    key={anno.id}
+                    className="group p-2 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer transition-colors"
+                    onClick={() => jumpToAnnotation(anno)}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <span
+                        className="text-xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400"
+                      >
+                        第 {anno.pageNumber} 页
+                      </span>
+                      <span
+                        className="w-3 h-3 rounded-sm flex-shrink-0"
+                        style={{
+                          backgroundColor: anno.type === 'highlight' ? anno.color : 'transparent',
+                          borderBottom: anno.type === 'underline' ? `2px solid ${anno.color}` : 'none',
+                        }}
+                      />
+                    </div>
+                    {anno.title && (
+                      <div className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
+                        {anno.title}
+                      </div>
+                    )}
+                    {anno.comment && (
+                      <div className="text-xs text-gray-600 dark:text-gray-400 line-clamp-2 mt-0.5">
+                        {anno.comment}
+                      </div>
+                    )}
+                    {!anno.title && !anno.comment && (
+                      <div className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2">
+                        {anno.selectedText}
+                      </div>
+                    )}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteAnnotation(workspacePath, anno.id);
+                      }}
+                      className="mt-1 text-xs text-red-500 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      删除
+                    </button>
+                  </div>
+                ))
+              )}
             </div>
           </div>
-        ) : !pdfData ? (
-          <div className="flex items-center justify-center h-96">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
-          </div>
-        ) : (
-          <div className="py-8 flex flex-col items-center gap-4">
-            <Document
-              file={fileProp}
-              onLoadSuccess={onDocumentLoadSuccess}
-              onLoadError={onDocumentLoadError}
-              options={documentOptions}
-              loading={null}
-            >
-              {visiblePageNumbers.map((pageNum) => (
-                <div
-                  key={`page-${pageNum}`}
-                  ref={(el) => {
-                    if (el) {
-                      // Only observe if not already observed
-                      if (!pageRefs.current.has(pageNum)) {
-                        pageRefs.current.set(pageNum, el);
-                        observerRef.current?.observe(el);
-                      }
-                    }
-                  }}
-                  data-page-num={pageNum}
-                  className="shadow-lg mb-4 last:mb-0 bg-white dark:bg-gray-900"
-                >
-                  <Page
-                    pageNumber={pageNum}
-                    scale={scale}
-                    rotate={rotation}
-                    renderTextLayer={true}
-                    renderAnnotationLayer={true}
-                    loading={
-                      <div className="w-[600px] h-[800px] flex items-center justify-center bg-gray-200 dark:bg-gray-700">
-                        <div className="animate-pulse text-gray-400">Loading page {pageNum}...</div>
-                      </div>
-                    }
-                  />
-                </div>
-              ))}
-            </Document>
-            {numPages > 0 && (
-              <div className="text-sm text-gray-500 mt-4">
-                显示第 {visibleRange.start} - {visibleRange.end} 页，共 {numPages} 页
-              </div>
-            )}
-          </div>
         )}
-
-        <SelectionToolbar
-          containerRef={scrollContainerRef}
-          onTranslate={handleTranslate}
-          onExplain={handleExplain}
-          onAsk={handleAsk}
-        />
       </div>
+
+      {creatingAnnotation && (
+        <AnnotationCreateDialog
+          isOpen={true}
+          defaultType={creatingAnnotation.defaultType}
+          selectedText={creatingAnnotation.text}
+          onClose={() => setCreatingAnnotation(null)}
+          onConfirm={saveAnnotation}
+        />
+      )}
     </div>
   );
 };

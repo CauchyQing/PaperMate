@@ -1,11 +1,13 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Languages, HelpCircle, MessageCircle, X } from 'lucide-react';
+import { Languages, HelpCircle, MessageCircle, Highlighter, Underline } from 'lucide-react';
 
 interface SelectionToolbarProps {
   containerRef: React.RefObject<HTMLElement>;
   onTranslate: (text: string) => void;
   onExplain: (text: string) => void;
   onAsk: (text: string, prefillText?: string) => void;
+  onHighlight?: (text: string, rects: DOMRectList) => void;
+  onUnderline?: (text: string, rects: DOMRectList) => void;
 }
 
 interface Position {
@@ -18,14 +20,18 @@ const SelectionToolbar: React.FC<SelectionToolbarProps> = ({
   onTranslate,
   onExplain,
   onAsk,
+  onHighlight,
+  onUnderline,
 }) => {
   const [selectedText, setSelectedText] = useState('');
+  const [selectedRects, setSelectedRects] = useState<DOMRectList | null>(null);
   const [position, setPosition] = useState<Position | null>(null);
   const [isVisible, setIsVisible] = useState(false);
 
   const hideToolbar = useCallback(() => {
     setIsVisible(false);
     setSelectedText('');
+    setSelectedRects(null);
     setPosition(null);
   }, []);
 
@@ -63,6 +69,7 @@ const SelectionToolbar: React.FC<SelectionToolbarProps> = ({
       const y = rect.top - 50; // Position above selection
 
       setSelectedText(text);
+      setSelectedRects(range.getClientRects());
       setPosition({ x, y });
       setIsVisible(true);
     };
@@ -84,7 +91,7 @@ const SelectionToolbar: React.FC<SelectionToolbarProps> = ({
     };
   }, [containerRef, hideToolbar]);
 
-  const handleAction = (action: 'translate' | 'explain' | 'ask') => {
+  const handleAction = (action: 'translate' | 'explain' | 'ask' | 'highlight' | 'underline') => {
     if (!selectedText) return;
     switch (action) {
       case 'translate':
@@ -97,6 +104,16 @@ const SelectionToolbar: React.FC<SelectionToolbarProps> = ({
         // Pass prefill text to populate the input box instead of sending immediately
         const prefillText = `关于以下内容，我有几个问题:\n\n${selectedText}\n\n请帮我分析这段内容的关键点和潜在问题。`;
         onAsk(selectedText, prefillText);
+        break;
+      case 'highlight':
+        if (selectedRects) {
+          onHighlight?.(selectedText, selectedRects);
+        }
+        break;
+      case 'underline':
+        if (selectedRects) {
+          onUnderline?.(selectedText, selectedRects);
+        }
         break;
     }
     hideToolbar();
@@ -140,6 +157,24 @@ const SelectionToolbar: React.FC<SelectionToolbarProps> = ({
       >
         <MessageCircle className="w-3.5 h-3.5" />
         <span>提问</span>
+      </button>
+      <div className="w-px h-4 bg-gray-200 dark:bg-gray-600 mx-0.5" />
+      <button
+        onClick={() => handleAction('highlight')}
+        className="flex items-center gap-1 px-2 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+        title="荧光笔"
+      >
+        <Highlighter className="w-3.5 h-3.5 text-yellow-500" />
+        <span>高亮</span>
+      </button>
+      <div className="w-px h-4 bg-gray-200 dark:bg-gray-600 mx-0.5" />
+      <button
+        onClick={() => handleAction('underline')}
+        className="flex items-center gap-1 px-2 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+        title="下划线"
+      >
+        <Underline className="w-3.5 h-3.5 text-blue-500" />
+        <span>划线</span>
       </button>
     </div>
   );

@@ -22,8 +22,8 @@ export async function scanDirectory(
     });
 
     for (const entry of sortedEntries) {
-      // Skip hidden files and directories (except .papermate)
-      if (entry.name.startsWith('.') && entry.name !== '.papermate') {
+      // Skip hidden files and directories
+      if (entry.name.startsWith('.')) {
         continue;
       }
 
