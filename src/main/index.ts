@@ -40,13 +40,20 @@ function createWindow(): void {
     },
   });
 
+  // Load the app
+  const isDev = !app.isPackaged;
+
   // Show window when content is ready to prevent white flash
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
   });
 
-  // Load the app
-  const isDev = !app.isPackaged;
+  // Hide default menu bar (File, Edit, View, etc.) in production
+  if (!isDev) {
+    mainWindow.setMenuBarVisibility(false);
+    // Remove the menu completely to prevent Alt key from showing it
+    mainWindow.setMenu(null);
+  }
   if (isDev) {
     // In dev mode, Vite dev server may not be ready yet.
     // Retry loading until the server is available.

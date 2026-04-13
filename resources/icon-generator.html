@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>PaperMate Icon Generator</title>
+  <style>
+    body { font-family: system-ui, sans-serif; padding: 40px; max-width: 800px; margin: 0 auto; }
+    .icon-preview { margin: 20px 0; }
+    .icon-preview img { margin: 10px; border: 1px solid #ddd; }
+    .instructions { background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0; }
+    code { background: #e0e0e0; padding: 2px 6px; border-radius: 3px; }
+    a { color: #3B82F6; }
+  </style>
+</head>
+<body>
+  <h1>🎨 PaperMate Icon Generator</h1>
+
+  <div class="icon-preview">
+    <h2>Icon Preview</h2>
+    <p>Right-click and save these images:</p>
+    <img src="icon.svg" width="256" height="256">
+    <img src="icon.svg" width="128" height="128">
+    <img src="icon.svg" width="64" height="64">
+    <img src="icon.svg" width="32" height="32">
+  </div>
+
+  <div class="instructions">
+    <h2>📦 Generate ICO (Windows)</h2>
+    <ol>
+      <li>Go to <a href="https://convertio.co/svg-ico/" target="_blank">convertio.co/svg-ico</a></li>
+      <li>Upload <code>resources/icon.svg</code></li>
+      <li>Download the ICO file as <code>resources/icon.ico</code></li>
+    </ol>
+    <p>Or use ImageMagick: <code>convert icon.svg icon.ico</code></p>
+  </div>
+
+  <div class="instructions">
+    <h2>📦 Generate ICNS (macOS)</h2>
+    <ol>
+      <li>Go to <a href="https://convertio.co/svg-icns/" target="_blank">convertio.co/svg-icns</a></li>
+      <li>Upload <code>resources/icon.svg</code></li>
+      <li>Download the ICNS file as <code>resources/icon.icns</code></li>
+    </ol>
+    <p>Or on macOS, use: <code>iconutil</code> or <code>sips</code></p>
+  </div>
+
+  <div class="instructions">
+    <h2>🚀 Quick Start (macOS with ImageMagick)</h2>
+    <pre style="background: #222; color: #0f0; padding: 15px; border-radius: 5px; overflow-x: auto;">
+# Install ImageMagick
+brew install imagemagick
+
+# Navigate to resources directory
+cd resources
+
+# Generate Windows ICO
+convert -background '#3B82F6' icon.svg -resize 256x256 icon.ico
+
+# Generate macOS ICNS (multiple steps)
+mkdir icon.iconset
+sips -z 16 16     icon.svg --out icon.iconset/icon_16x16.png
+sips -z 32 32     icon.svg --out icon.iconset/icon_16x16@2x.png
+sips -z 32 32     icon.svg --out icon.iconset/icon_32x32.png
+sips -z 64 64     icon.svg --out icon.iconset/icon_32x32@2x.png
+sips -z 128 128   icon.svg --out icon.iconset/icon_128x128.png
+sips -z 256 256   icon.svg --out icon.iconset/icon_128x128@2x.png
+sips -z 256 256   icon.svg --out icon.iconset/icon_256x256.png
+sips -z 512 512   icon.svg --out icon.iconset/icon_256x256@2x.png
+sips -z 512 512   icon.svg --out icon.iconset/icon_512x512.png
+sips -z 1024 1024 icon.svg --out icon.iconset/icon_512x512@2x.png
+iconutil -c icns icon.iconset
+rm -rf icon.iconset
+    </pre>
+  </div>
+</body>
+</html>

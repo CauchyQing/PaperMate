@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Background circle -->
+  <circle cx="256" cy="256" r="240" fill="#3B82F6"/>
+
+  <!-- Paper/document shape -->
+  <path d="M336 128H176c-17.7 0-32 14.3-32 32v192c0 17.7 14.3 32 32 32h160c17.7 0 32-14.3 32-32V160c0-17.7-14.3-32-32-32z" fill="white"/>
+
+  <!-- Paper fold corner -->
+  <path d="M336 128v48c0 17.7 14.3 32 32 32h48l-80-80z" fill="#E5E7EB"/>
+
+  <!-- Lines representing text -->
+  <rect x="200" y="208" width="112" height="12" rx="3" fill="#6B7280"/>
+  <rect x="200" y="240" width="112" height="12" rx="3" fill="#6B7280"/>
+  <rect x="200" y="272" width="80" height="12" rx="3" fill="#6B7280"/>
+
+  <!-- AI sparkle/star -->
+  <path d="M360 296l-12-4-4-12-4 12-12 4 12 4 4 12 4-12z" fill="#F59E0B"/>
+  <path d="M152 184l-8-3-3-8-3 8-8 3 8 3 3 8 3-8z" fill="#F59E0B"/>
+</svg>
