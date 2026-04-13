@@ -3,11 +3,11 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import fs from 'fs';
 
-// Plugin to copy PDF.js worker and cmaps to output directory
-const copyPdfAssetsPlugin = () => ({
-  name: 'copy-pdf-assets',
+// Plugin to copy PDF.js worker, cmaps, and KaTeX CSS to output directory
+const copyAssetsPlugin = () => ({
+  name: 'copy-assets',
   writeBundle() {
-    // Copy worker
+    // Copy PDF.js worker
     const workerSource = path.join(__dirname, 'node_modules/pdfjs-dist/build/pdf.worker.min.js');
     const workerDest = path.join(__dirname, 'dist/renderer/pdf.worker.min.js');
     if (fs.existsSync(workerSource)) {
@@ -25,11 +25,18 @@ const copyPdfAssetsPlugin = () => ({
       }
       console.log(`[vite] Copied ${files.length} cmaps to output directory`);
     }
+    // Copy KaTeX CSS
+    const katexCssSource = path.join(__dirname, 'node_modules/katex/dist/katex.min.css');
+    const katexCssDest = path.join(__dirname, 'dist/renderer/katex.min.css');
+    if (fs.existsSync(katexCssSource)) {
+      fs.copyFileSync(katexCssSource, katexCssDest);
+      console.log('[vite] Copied katex.min.css to output directory');
+    }
   },
 });
 
 export default defineConfig({
-  plugins: [react(), copyPdfAssetsPlugin()],
+  plugins: [react(), copyAssetsPlugin()],
   root: path.join(__dirname, 'src/renderer'),
   base: './',
   build: {

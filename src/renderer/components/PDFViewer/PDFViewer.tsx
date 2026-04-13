@@ -121,50 +121,58 @@ const PDFViewer: React.FC = () => {
           const pageNum = parseInt(entry.target.getAttribute('data-page-num') || '1', 10);
           if (entry.isIntersecting) {
             // Page is visible, ensure it's in the render range
-            setVisibleRange((prev) => ({
-              start: Math.min(prev.start, Math.max(1, pageNum - 1)),
-              end: Math.max(prev.end, Math.min(numPages, pageNum + 2)),
-            }));
+            setVisibleRange((prev) => {
+              const newStart = Math.min(prev.start, Math.max(1, pageNum - 1));
+              const newEnd = Math.max(prev.end, Math.min(numPages, pageNum + 2));
+              if (newStart !== prev.start || newEnd !== prev.end) {
+                return { start: newStart, end: newEnd };
+              }
+              return prev;
+            });
           }
         });
       },
       {
         root: scrollContainerRef.current,
-        rootMargin: '100px 0px', // Load pages slightly before they become visible
-        threshold: 0.1,
+        rootMargin: '200px 0px', // Larger margin to preload more pages
+        threshold: 0.01,
       }
     );
 
-    // Observe all page containers
+    // Observe all currently rendered page containers
     pageRefs.current.forEach((el) => {
-      observerRef.current?.observe(el);
+      if (el) observerRef.current?.observe(el);
     });
 
     return () => {
       observerRef.current?.disconnect();
     };
-  }, [numPages]);
+  }, [numPages, visibleRange.start, visibleRange.end]);
 
-  // Update visible range when scrolling
+  // Update visible range when scrolling - always extend range to include current viewport
   const handleScroll = useCallback(() => {
     if (!scrollContainerRef.current || numPages === 0) return;
 
     const container = scrollContainerRef.current;
     const scrollTop = container.scrollTop;
-    const containerHeight = container.clientHeight;
 
     // Estimate current page based on scroll position
     // Assuming average page height of ~800px at scale 1.0
     const avgPageHeight = 800 * scale;
     const currentPage = Math.max(1, Math.min(numPages, Math.floor(scrollTop / avgPageHeight) + 1));
 
-    // Update visible range to include current page and buffer
+    // Always update visible range to include current page and buffer
+    // This ensures smooth scrolling by pre-loading pages in the scroll direction
     const newStart = Math.max(1, currentPage - 1);
     const newEnd = Math.min(numPages, currentPage + 3);
 
     setVisibleRange((prev) => {
-      if (currentPage < prev.start || currentPage > prev.end) {
-        return { start: newStart, end: newEnd };
+      // Extend range if needed to include the current viewport
+      const start = Math.min(prev.start, newStart);
+      const end = Math.max(prev.end, newEnd);
+      // Only update if range actually changed
+      if (start !== prev.start || end !== prev.end) {
+        return { start, end };
       }
       return prev;
     });
