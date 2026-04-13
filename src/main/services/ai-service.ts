@@ -110,12 +110,26 @@ export async function chatStream(
 
       const decoder = new TextDecoder();
       let buffer = '';
+      let chunkCount = 0;
+      const startTime = Date.now();
+
+      console.log('[AI Service] Starting to read stream for request:', requestId);
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          console.log(`[AI Service] Stream complete. Total chunks: ${chunkCount}, time: ${Date.now() - startTime}ms`);
+          break;
+        }
 
-        buffer += decoder.decode(value, { stream: true });
+        const decoded = decoder.decode(value, { stream: true });
+        buffer += decoded;
+
+        // Log first chunk to confirm stream started
+        if (chunkCount === 0) {
+          console.log(`[AI Service] First chunk received after ${Date.now() - startTime}ms`);
+        }
+
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
 
@@ -124,6 +138,7 @@ export async function chatStream(
           if (!trimmed || !trimmed.startsWith('data: ')) continue;
           const data = trimmed.slice(6);
           if (data === '[DONE]') {
+            console.log(`[AI Service] Received [DONE] after ${Date.now() - startTime}ms`);
             win.webContents.send('ai:stream-event', {
               type: 'done',
               requestId,
@@ -139,6 +154,11 @@ export async function chatStream(
               || parsed.text
               || parsed.response;
             if (content) {
+              chunkCount++;
+              // Log every 10 chunks
+              if (chunkCount % 10 === 0) {
+                console.log(`[AI Service] Sent chunk ${chunkCount}, time: ${Date.now() - startTime}ms`);
+              }
               win.webContents.send('ai:stream-event', {
                 type: 'chunk',
                 content,
