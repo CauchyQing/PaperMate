@@ -40,31 +40,13 @@ const MessageBubble: React.FC<{ message: Message }> = ({ message }) => {
         {isUser ? (
           <p className="whitespace-pre-wrap">{message.content}</p>
         ) : (
-          <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-pre:my-2 prose-code:text-xs prose-katex">
+          <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-pre:my-2 prose-code:text-xs">
             <ReactMarkdown
               remarkPlugins={[remarkGfm, remarkMath]}
               rehypePlugins={[[rehypeKatex, {
-                displayMode: false,
                 throwOnError: false,
-                strict: false,
+                errorColor: '#ef4444',
               }]]}
-              components={{
-                // Override math display for better block formula rendering
-                div: ({ className, children, ...props }: any) => {
-                  // KaTeX block math is rendered in a div with 'math' class
-                  if (className?.includes('math') && className?.includes('display')) {
-                    return (
-                      <div
-                        className="my-3 py-3 px-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 overflow-x-auto"
-                        {...props}
-                      >
-                        {children}
-                      </div>
-                    );
-                  }
-                  return <div className={className} {...props}>{children}</div>;
-                },
-              }}
             >
               {message.content}
             </ReactMarkdown>
@@ -82,31 +64,13 @@ const StreamingBubble: React.FC<{ content: string }> = ({ content }) => (
     </div>
     <div className="max-w-[85%] rounded-lg px-3 py-2 text-sm bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100">
       {content ? (
-        <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-pre:my-2 prose-code:text-xs prose-katex">
+        <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-pre:my-2 prose-code:text-xs">
           <ReactMarkdown
             remarkPlugins={[remarkGfm, remarkMath]}
             rehypePlugins={[[rehypeKatex, {
-              displayMode: false,
               throwOnError: false,
-              strict: false,
+              errorColor: '#ef4444',
             }]]}
-            components={{
-              // Override math display for better block formula rendering
-              div: ({ className, children, ...props }: any) => {
-                // KaTeX block math is rendered in a div with 'math' class
-                if (className?.includes('math') && className?.includes('display')) {
-                  return (
-                    <div
-                      className="my-3 py-3 px-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 overflow-x-auto"
-                      {...props}
-                    >
-                      {children}
-                    </div>
-                  );
-                }
-                return <div className={className} {...props}>{children}</div>;
-              },
-            }}
           >
             {content}
           </ReactMarkdown>
