@@ -81,84 +81,15 @@ const ScreenshotCapture: React.FC<ScreenshotCaptureProps> = ({
     await new Promise(resolve => setTimeout(resolve, 50));
 
     try {
-      // Get screen sources
-      const sources = await window.electronAPI.desktopCapturerGetSources({
-        types: ['screen'],
-        thumbnailSize: { width: window.screen.width, height: window.screen.height },
+      // Use window capture API which captures the app's own window content.
+      // This does NOT require screen recording permission on macOS (unlike desktopCapturer).
+      // Coordinates are CSS pixels (DIP) relative to the webContents viewport.
+      const imageData = await window.electronAPI.captureWindowRegion({
+        x: Math.round(sel.startX),
+        y: Math.round(sel.startY),
+        width: Math.round(sel.width),
+        height: Math.round(sel.height),
       });
-
-      if (sources.length === 0) {
-        throw new Error('No screen source found');
-      }
-
-      // Get the first screen (primary)
-      const source = sources[0];
-
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: {
-          mandatory: {
-            chromeMediaSource: 'desktop',
-            chromeMediaSourceId: source.id,
-            minWidth: window.screen.width,
-            maxWidth: window.screen.width,
-            minHeight: window.screen.height,
-            maxHeight: window.screen.height,
-          },
-        } as any,
-      });
-
-      const video = document.createElement('video');
-      video.srcObject = stream;
-
-      await new Promise<void>((resolve, reject) => {
-        video.onloadedmetadata = () => {
-          video.play().then(() => resolve()).catch(reject);
-        };
-        video.onerror = reject;
-      });
-
-      // Wait a bit for the video to render
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      // Calculate scale factor between screen and video
-      const scaleX = video.videoWidth / window.screen.width;
-      const scaleY = video.videoHeight / window.screen.height;
-
-      // Create canvas for cropping
-      const canvas = document.createElement('canvas');
-      const captureWidth = Math.floor(sel.width * scaleX);
-      const captureHeight = Math.floor(sel.height * scaleY);
-      canvas.width = captureWidth;
-      canvas.height = captureHeight;
-
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        throw new Error('Could not get canvas context');
-      }
-
-      // Calculate source position with offset correction
-      // We need to account for the window's position on screen
-      const windowX = window.screenX;
-      const windowY = window.screenY - (window.outerHeight - window.innerHeight);
-
-      const sourceX = Math.floor((sel.startX + windowX) * scaleX);
-      const sourceY = Math.floor((sel.startY + windowY) * scaleY);
-
-      // Draw the cropped region
-      ctx.drawImage(
-        video,
-        sourceX, sourceY, captureWidth, captureHeight,
-        0, 0, canvas.width, canvas.height
-      );
-
-      // Get image data
-      const imageData = canvas.toDataURL('image/png');
-
-      // Cleanup
-      stream.getTracks().forEach(track => track.stop());
-      video.remove();
-      canvas.remove();
 
       // Pass image data with translation prompt
       onCapture(imageData, '请翻译图片中的内容');

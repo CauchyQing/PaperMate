@@ -8,8 +8,9 @@ import SelectionToolbar from '../SelectionToolbar/SelectionToolbar';
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
 
-// Set PDF.js worker
-pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+// Set PDF.js worker - use local file for faster loading and offline support
+// Use the copied file in dist/renderer directory
+pdfjs.GlobalWorkerOptions.workerSrc = './pdf.worker.min.js';
 
 const PDFViewer: React.FC = () => {
   const { activeFileId, openFiles } = useFileStore();
@@ -24,11 +25,16 @@ const PDFViewer: React.FC = () => {
   const { createConversation, sendMessage, activeConversationId, setPrefillText } = useConversationStore();
   const workspacePath = currentWorkspace?.path || '';
 
+  // Virtual scrolling state - only render visible pages
+  const [visibleRange, setVisibleRange] = useState({ start: 1, end: 3 });
+  const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const observerRef = useRef<IntersectionObserver | null>(null);
+
   const activeFile = openFiles.find((f) => f.id === activeFileId);
 
-  // Memoize options for CMap support
+  // Memoize options for CMap support - use local files
   const documentOptions = useMemo(() => ({
-    cMapUrl: `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/cmaps/`,
+    cMapUrl: './cmaps/',
     cMapPacked: true,
   }), []);
 
@@ -45,23 +51,38 @@ const PDFViewer: React.FC = () => {
     if (!activeFile) {
       setPdfData(null);
       setNumPages(0);
+      setVisibleRange({ start: 1, end: 3 });
       return;
     }
 
     const loadPdf = async () => {
       setIsLoading(true);
       setError(null);
+      console.log('[PDFViewer] Loading PDF:', activeFile.path);
       try {
         const base64 = await window.electronAPI.readFile(activeFile.path);
+        console.log('[PDFViewer] File read success, base64 length:', base64.length);
+        if (base64.length === 0) {
+          throw new Error('File is empty');
+        }
         // Convert base64 to Uint8Array
         const binaryString = atob(base64);
+        console.log('[PDFViewer] Base64 decoded, binary length:', binaryString.length);
         const bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) {
           bytes[i] = binaryString.charCodeAt(i);
         }
+        console.log('[PDFViewer] Uint8Array created, bytes:', bytes.length);
+        // Check if it looks like a PDF (starts with %PDF)
+        const header = String.fromCharCode(...bytes.slice(0, 5));
+        console.log('[PDFViewer] File header:', header);
+        if (!header.startsWith('%PDF')) {
+          console.warn('[PDFViewer] Warning: File does not look like a PDF');
+        }
         setPdfData(bytes);
       } catch (err) {
-        setError(String(err));
+        console.error('[PDFViewer] Load error:', err);
+        setError(`Failed to load PDF: ${err instanceof Error ? err.message : String(err)}`);
         setIsLoading(false);
       }
     };
@@ -80,9 +101,74 @@ const PDFViewer: React.FC = () => {
   }, []);
 
   const onDocumentLoadError = useCallback((error: Error) => {
+    console.error('[PDFViewer] Document load error:', error);
     setError(error.message);
     setIsLoading(false);
   }, []);
+
+  // Setup intersection observer for virtual scrolling
+  useEffect(() => {
+    if (numPages === 0) return;
+
+    // Cleanup previous observer
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+    }
+
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          const pageNum = parseInt(entry.target.getAttribute('data-page-num') || '1', 10);
+          if (entry.isIntersecting) {
+            // Page is visible, ensure it's in the render range
+            setVisibleRange((prev) => ({
+              start: Math.min(prev.start, Math.max(1, pageNum - 1)),
+              end: Math.max(prev.end, Math.min(numPages, pageNum + 2)),
+            }));
+          }
+        });
+      },
+      {
+        root: scrollContainerRef.current,
+        rootMargin: '100px 0px', // Load pages slightly before they become visible
+        threshold: 0.1,
+      }
+    );
+
+    // Observe all page containers
+    pageRefs.current.forEach((el) => {
+      observerRef.current?.observe(el);
+    });
+
+    return () => {
+      observerRef.current?.disconnect();
+    };
+  }, [numPages]);
+
+  // Update visible range when scrolling
+  const handleScroll = useCallback(() => {
+    if (!scrollContainerRef.current || numPages === 0) return;
+
+    const container = scrollContainerRef.current;
+    const scrollTop = container.scrollTop;
+    const containerHeight = container.clientHeight;
+
+    // Estimate current page based on scroll position
+    // Assuming average page height of ~800px at scale 1.0
+    const avgPageHeight = 800 * scale;
+    const currentPage = Math.max(1, Math.min(numPages, Math.floor(scrollTop / avgPageHeight) + 1));
+
+    // Update visible range to include current page and buffer
+    const newStart = Math.max(1, currentPage - 1);
+    const newEnd = Math.min(numPages, currentPage + 3);
+
+    setVisibleRange((prev) => {
+      if (currentPage < prev.start || currentPage > prev.end) {
+        return { start: newStart, end: newEnd };
+      }
+      return prev;
+    });
+  }, [numPages, scale]);
 
   const zoomIn = () => {
     setScale((prev) => Math.min(prev + 0.2, 3));
@@ -96,10 +182,15 @@ const PDFViewer: React.FC = () => {
     setRotation((prev) => (prev + 90) % 360);
   };
 
-  // Generate array of page numbers
-  const pageNumbers = useMemo(() => {
-    return Array.from({ length: numPages }, (_, i) => i + 1);
-  }, [numPages]);
+  // Generate array of page numbers - only render visible pages
+  const visiblePageNumbers = useMemo(() => {
+    if (numPages === 0) return [];
+    const pages = [];
+    for (let i = visibleRange.start; i <= visibleRange.end; i++) {
+      pages.push(i);
+    }
+    return pages;
+  }, [numPages, visibleRange]);
 
   // Handle text selection actions
   const handleTranslate = async (text: string) => {
@@ -198,9 +289,10 @@ const PDFViewer: React.FC = () => {
         </div>
       </div>
 
-      {/* PDF Content - Continuous Scroll */}
+      {/* PDF Content - Virtual Scrolling */}
       <div
         ref={scrollContainerRef}
+        onScroll={handleScroll}
         className="flex-1 overflow-y-auto overflow-x-hidden scroll-smooth relative"
       >
         {error ? (
@@ -223,9 +315,19 @@ const PDFViewer: React.FC = () => {
               options={documentOptions}
               loading={null}
             >
-              {pageNumbers.map((pageNum) => (
+              {visiblePageNumbers.map((pageNum) => (
                 <div
-                  key={pageNum}
+                  key={`page-${pageNum}`}
+                  ref={(el) => {
+                    if (el) {
+                      // Only observe if not already observed
+                      if (!pageRefs.current.has(pageNum)) {
+                        pageRefs.current.set(pageNum, el);
+                        observerRef.current?.observe(el);
+                      }
+                    }
+                  }}
+                  data-page-num={pageNum}
                   className="shadow-lg mb-4 last:mb-0 bg-white dark:bg-gray-900"
                 >
                   <Page
@@ -236,13 +338,18 @@ const PDFViewer: React.FC = () => {
                     renderAnnotationLayer={true}
                     loading={
                       <div className="w-[600px] h-[800px] flex items-center justify-center bg-gray-200 dark:bg-gray-700">
-                        <div className="animate-pulse text-gray-400">Loading...</div>
+                        <div className="animate-pulse text-gray-400">Loading page {pageNum}...</div>
                       </div>
                     }
                   />
                 </div>
               ))}
             </Document>
+            {numPages > 0 && (
+              <div className="text-sm text-gray-500 mt-4">
+                显示第 {visibleRange.start} - {visibleRange.end} 页，共 {numPages} 页
+              </div>
+            )}
           </div>
         )}
 

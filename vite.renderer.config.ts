@@ -1,9 +1,35 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import fs from 'fs';
+
+// Plugin to copy PDF.js worker and cmaps to output directory
+const copyPdfAssetsPlugin = () => ({
+  name: 'copy-pdf-assets',
+  writeBundle() {
+    // Copy worker
+    const workerSource = path.join(__dirname, 'node_modules/pdfjs-dist/build/pdf.worker.min.js');
+    const workerDest = path.join(__dirname, 'dist/renderer/pdf.worker.min.js');
+    if (fs.existsSync(workerSource)) {
+      fs.copyFileSync(workerSource, workerDest);
+      console.log('[vite] Copied pdf.worker.min.js to output directory');
+    }
+    // Copy cmaps
+    const cmapsSource = path.join(__dirname, 'node_modules/pdfjs-dist/cmaps');
+    const cmapsDest = path.join(__dirname, 'dist/renderer/cmaps');
+    if (fs.existsSync(cmapsSource)) {
+      fs.mkdirSync(cmapsDest, { recursive: true });
+      const files = fs.readdirSync(cmapsSource);
+      for (const file of files) {
+        fs.copyFileSync(path.join(cmapsSource, file), path.join(cmapsDest, file));
+      }
+      console.log(`[vite] Copied ${files.length} cmaps to output directory`);
+    }
+  },
+});
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), copyPdfAssetsPlugin()],
   root: path.join(__dirname, 'src/renderer'),
   base: './',
   build: {

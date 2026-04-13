@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Folder, FileText, ChevronRight, ChevronDown, RefreshCw } from 'lucide-react';
 import { useFileStore } from '../../stores/file';
 import { useWorkspaceStore } from '../../stores/workspace';
@@ -171,11 +171,15 @@ const FileBrowser: React.FC = () => {
   }, [currentWorkspace, loadPapers]);
 
   // 加载文件并自动导入所有PDF（递归扫描子文件夹）
+  // 使用 ref 来跟踪是否已初始化，避免重复运行
+  const hasInitialized = useRef(false);
   useEffect(() => {
     const initFiles = async () => {
       if (!currentWorkspace) return;
+      if (hasInitialized.current) return; // 防止重复运行
 
       setIsImporting(true);
+      hasInitialized.current = true;
       try {
         // 先加载根目录文件显示UI
         await loadFiles(currentWorkspace.path);
@@ -186,8 +190,9 @@ const FileBrowser: React.FC = () => {
           currentWorkspace.path
         );
 
-        // 获取已存在的论文路径
-        const existingPaths = new Set(papers.map((p) => p.filePath));
+        // 获取已存在的论文路径（使用 store 获取最新状态，避免依赖 papers）
+        const currentPapers = useCategoryStore.getState().papers;
+        const existingPaths = new Set(currentPapers.map((p) => p.filePath));
         const newPdfs = allPdfFiles.filter((pdf) => !existingPaths.has(pdf.path));
 
         // 导入新PDF
@@ -206,7 +211,8 @@ const FileBrowser: React.FC = () => {
     };
 
     initFiles();
-  }, [currentWorkspace, loadFiles, importPaper, loadPapers, papers]);
+    // 只在组件挂载和工作区变化时运行，不依赖 papers 避免循环
+  }, [currentWorkspace?.path]);
 
   const handleRefresh = async () => {
     if (!currentWorkspace) return;
@@ -222,8 +228,9 @@ const FileBrowser: React.FC = () => {
         currentWorkspace.path
       );
 
-      // 导入新PDF
-      const existingPaths = new Set(papers.map((p) => p.filePath));
+      // 导入新PDF（使用 store 获取最新状态）
+      const currentPapers = useCategoryStore.getState().papers;
+      const existingPaths = new Set(currentPapers.map((p) => p.filePath));
       const newPdfs = allPdfFiles.filter((pdf) => !existingPaths.has(pdf.path));
 
       for (const pdf of newPdfs) {

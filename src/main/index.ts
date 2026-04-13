@@ -165,11 +165,21 @@ ipcMain.handle('workspace:close', () => {
 // File IPC handlers
 ipcMain.handle('file:read', async (_event, filePath: string) => {
   try {
+    console.log('[Main] Reading file:', filePath);
     const fs = await import('fs/promises');
+    const stats = await fs.stat(filePath);
+    console.log('[Main] File stats:', { size: stats.size, isFile: stats.isFile() });
+    if (!stats.isFile()) {
+      throw new Error(`Path is not a file: ${filePath}`);
+    }
     const buffer = await fs.readFile(filePath);
+    console.log('[Main] File read success, buffer size:', buffer.length);
     // Convert to base64 for safe IPC transfer
-    return buffer.toString('base64');
+    const base64 = buffer.toString('base64');
+    console.log('[Main] Base64 encoded, length:', base64.length);
+    return base64;
   } catch (error) {
+    console.error('[Main] File read error:', error);
     throw error;
   }
 });
@@ -389,6 +399,21 @@ ipcMain.handle('paper:analyze', async (_event, paper: any, existingTags: any[]) 
 // Desktop capturer IPC handler
 ipcMain.handle('desktopCapturer:getSources', async (_event, options: any) => {
   return desktopCapturer.getSources(options);
+});
+
+// Window capture IPC handler - captures a region of the app window
+// This does NOT require screen recording permission on macOS (unlike desktopCapturer)
+ipcMain.handle('window:captureRegion', async (_event, rect: { x: number; y: number; width: number; height: number }) => {
+  if (!mainWindow) throw new Error('窗口未就绪');
+  try {
+    console.log('[Main] Capturing window region:', rect);
+    const image = await mainWindow.webContents.capturePage(rect);
+    console.log('[Main] Capture success, size:', image.getSize());
+    return image.toDataURL();
+  } catch (error) {
+    console.error('[Main] Window capture error:', error);
+    throw error;
+  }
 });
 
 console.log('[Main] PaperMate main process started');

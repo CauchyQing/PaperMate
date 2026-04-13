@@ -80,8 +80,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Paper analysis
   paperAnalyze: (paper: any, existingTags: any[]) => ipcRenderer.invoke('paper:analyze', paper, existingTags),
 
-  // Desktop capturer
+  // Desktop capturer (fallback)
   desktopCapturerGetSources: (options: any) => ipcRenderer.invoke('desktopCapturer:getSources', options),
+  // Window capture - captures app window region without screen recording permission
+  captureWindowRegion: (rect: { x: number; y: number; width: number; height: number }) =>
+    ipcRenderer.invoke('window:captureRegion', rect),
 });
 
 // TypeScript declarations
@@ -136,6 +139,8 @@ declare global {
       paperAnalyze: (paper: any, existingTags: any[]) => Promise<{ suggestedTitle: string; suggestedJournal?: string; suggestedYear?: number; suggestedTopics: string[]; suggestedKeywords: string[]; summary: string }>;
       // Desktop capturer
       desktopCapturerGetSources: (options: any) => Promise<any[]>;
+      // Window capture
+      captureWindowRegion: (rect: { x: number; y: number; width: number; height: number }) => Promise<string>;
     };
   }
 }
