@@ -75,3 +75,8 @@ CLAUDE.md
 
 # Optional: Ignore test papers (uncomment if you have sample PDFs for testing)
 # test-papers/
+
+# Bundled Python runtimes (large binaries, not committed to git)
+resources/python-mac/
+resources/python-win/
+resources/python-win-wheels/

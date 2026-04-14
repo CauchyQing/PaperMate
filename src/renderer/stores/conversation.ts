@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { Conversation, Message } from '../../shared/types';
 import type { ChatStreamEvent } from '../../shared/types/ai';
+import type { AgentStep } from '../../shared/types/agent';
 
 interface ConversationState {
   conversations: Conversation[];
@@ -17,6 +18,8 @@ interface ConversationState {
   summaries: Record<string, string>;
   // Whether summary is being generated
   isGeneratingSummary: boolean;
+  // Agent steps for the current turn
+  agentSteps: AgentStep[];
 
   // Actions
   loadConversations: (workspacePath: string) => Promise<void>;
@@ -29,8 +32,10 @@ interface ConversationState {
   clearError: () => void;
   setPrefillText: (text: string | null) => void;
   updateConversationTitle: (workspacePath: string, id: string, newTitle: string) => Promise<void>;
+  updateConversationPdfContext: (workspacePath: string, id: string, pdfContext: import('../../shared/types').PdfContext) => Promise<void>;
   // Generate summary for long conversation
   generateSummary: (workspacePath: string, messages: Message[]) => Promise<string>;
+  clearAgentSteps: () => void;
 }
 
 let unsubStreamEvent: (() => void) | null = null;
@@ -41,24 +46,6 @@ function estimateTokens(text: string): number {
   const otherChars = text.length - chineseChars;
   return Math.ceil(chineseChars / 4 + otherChars / 1.3) + 4;
 }
-
-// System prompt for academic assistant
-const SYSTEM_PROMPT = `你是一位专业的学术助手，擅长帮助研究人员阅读、理解和分析学术论文。
-
-你的能力包括：
-1. 翻译学术文献，保持专业术语的准确性
-2. 解释复杂概念、数学公式和图表
-3. 分析论文的核心贡献、方法和实验结果
-4. 回答关于论文内容的具体问题
-5. 提供相关领域的背景知识和上下文
-
-回答要求：
-- 使用清晰、准确的语言
-- 若用户要求翻译，只需翻译文本，不进行其他解释，重点词汇可以加粗显示
-- 对专业术语进行必要的解释
-- 使用 Markdown 格式（包括公式块 $...$ 和 $$...$$）
-- 如有需要，提供具体的例子帮助理解
-- 如果不确定，诚实说明而非猜测`;
 
 // Summary generation prompt
 const SUMMARY_PROMPT = `请对以下对话内容进行摘要总结。摘要需要包含：
@@ -84,8 +71,10 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
   prefillText: null,
   summaries: {},
   isGeneratingSummary: false,
+  agentSteps: [],
 
   setPrefillText: (text: string | null) => set({ prefillText: text }),
+  clearAgentSteps: () => set({ agentSteps: [] }),
 
   loadConversations: async (workspacePath: string) => {
     const conversations = await window.electronAPI.conversationList(workspacePath);
@@ -120,7 +109,7 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
   },
 
   setActiveConversation: async (workspacePath: string, id: string | null) => {
-    set({ activeConversationId: id, messages: [], streamingContent: '' });
+    set({ activeConversationId: id, messages: [], streamingContent: '', agentSteps: [] });
     if (id) {
       const messages = await window.electronAPI.messageList(workspacePath, id);
       set({ messages });
@@ -204,47 +193,73 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
   },
 
   sendMessage: async (workspacePath: string, content: string, metadata?: Message['metadata']) => {
-    const { activeConversationId, messages, summaries, isGeneratingSummary } = get();
+    const { activeConversationId, messages, summaries, isGeneratingSummary, conversations } = get();
     if (!activeConversationId) return;
+
+    const activeConv = conversations.find(c => c.id === activeConversationId);
+
+    // Build display content with attachment info
+    let displayContent = content;
+    const attachments = metadata?.attachments;
+    if (attachments && attachments.length > 0) {
+      const attachmentDesc = attachments.map(a => `[Attached ${a.type.toUpperCase()}: ${a.name} at ${a.path}]`).join('\n');
+      displayContent = `${content}\n\n${attachmentDesc}`;
+    }
+
+    // Ensure PDF context is built if a new PDF is attached
+    let pdfContext = activeConv?.pdfContext;
+    const pdfAttachment = attachments?.find(a => a.type === 'pdf');
+    if (pdfAttachment) {
+      const isDifferentPdf = !pdfContext || pdfContext.filePath !== pdfAttachment.path;
+      if (isDifferentPdf) {
+        // Show a temporary loading-like state by setting error to inform user
+        set({ error: '正在提取并分析 PDF，请稍候...' });
+        try {
+          const built = await window.electronAPI.buildPdfContext(pdfAttachment.path, pdfAttachment.name);
+          pdfContext = built;
+          await get().updateConversationPdfContext(workspacePath, activeConversationId, built);
+        } catch (err: any) {
+          console.error('[Conversation] Failed to build PDF context:', err);
+          set({ error: `PDF 分析失败: ${err.message || '未知错误'}` });
+          return;
+        } finally {
+          setTimeout(() => set(s => s.error?.startsWith('正在提取') || s.error?.startsWith('PDF 分析') ? { error: null } : {}), 100);
+        }
+      }
+    }
 
     // Save user message
     const userMsg = await window.electronAPI.messageAdd(workspacePath, {
       conversationId: activeConversationId,
       role: 'user',
-      content,
+      content: displayContent,
       contentType: metadata?.imageData ? 'mixed' : 'text',
       metadata,
     });
 
     // Update local state with new message
     const updatedMessages = [...messages, userMsg];
-    set({ messages: updatedMessages });
+    set({ messages: updatedMessages, agentSteps: [] });
 
     // Calculate total estimated tokens
     const totalEstimatedTokens = updatedMessages.reduce((total, m) => {
       const text = m.metadata?.imageData ? m.content + '[image]' : m.content;
       return total + estimateTokens(text);
-    }, estimateTokens(SYSTEM_PROMPT));
+    }, 0);
 
     // Context management thresholds (for 200k context model)
-    // Reserve ~80k for response, use up to 120k for context
-    const SUMMARY_THRESHOLD = 80000;     // Trigger summary generation at 80k
-    const MAX_CONTEXT_TOKENS = 120000;   // Use summary + recent messages at 120k
-    const RECENT_MESSAGES_COUNT = 10;    // Keep last 10 messages with summary
-    const SUMMARY_UPDATE_THRESHOLD = 20000; // Re-generate summary when 20k new content added
+    const SUMMARY_THRESHOLD = 80000;
+    const MAX_CONTEXT_TOKENS = 120000;
+    const RECENT_MESSAGES_COUNT = 10;
+    const SUMMARY_UPDATE_THRESHOLD = 20000;
 
     let contextMessages: Message[] = [...updatedMessages];
     let hasSummaryContext = false;
 
-    // Check if we need to use summary
     if (totalEstimatedTokens > MAX_CONTEXT_TOKENS) {
       console.log('[Conversation] Context too long (>120k), using summary + recent messages');
-
-      // Check if we have an existing summary for this conversation
       const existingSummary = summaries[activeConversationId];
-
       if (existingSummary) {
-        // Use existing summary + recent messages
         const recentMessages = updatedMessages.slice(-RECENT_MESSAGES_COUNT);
         contextMessages = [
           {
@@ -259,8 +274,6 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
         ];
         hasSummaryContext = true;
 
-        // Check if we need to update the summary (incremental update)
-        // Only re-generate if we have significant new content since last summary
         const tokensSinceSummary = recentMessages.reduce((total, m) => {
           const text = m.metadata?.imageData ? m.content + '[image]' : m.content;
           return total + estimateTokens(text);
@@ -270,17 +283,13 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
             !isGeneratingSummary &&
             updatedMessages.length > RECENT_MESSAGES_COUNT + 5) {
           console.log('[Conversation] Significant new content, updating summary in background');
-          // Update summary with all messages (will replace old summary)
           get().generateSummary(workspacePath, updatedMessages);
         }
       } else {
-        // No summary yet, use sliding window (keep last 20 messages as fallback)
         contextMessages = updatedMessages.slice(-20);
       }
     }
 
-    // Trigger initial summary generation if needed
-    // Only generate if: over threshold + not generating + no existing summary + enough messages
     if (totalEstimatedTokens > SUMMARY_THRESHOLD &&
         !isGeneratingSummary &&
         !summaries[activeConversationId] &&
@@ -289,29 +298,23 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
       get().generateSummary(workspacePath, updatedMessages);
     }
 
-    // Build final messages array for AI
-    const history = [
-      { role: 'system' as const, content: SYSTEM_PROMPT },
-      ...contextMessages.map(m => {
-        // Handle multimodal messages (with image)
-        if (m.metadata?.imageData) {
-          return {
-            role: m.role as 'user' | 'assistant',
-            content: [
-              { type: 'image_url' as const, image_url: { url: m.metadata.imageData } },
-              { type: 'text' as const, text: m.content },
-            ],
-          };
-        }
-        // Regular text message
+    // Build messages for agent
+    const history = contextMessages.map(m => {
+      if (m.metadata?.imageData) {
         return {
           role: m.role as 'user' | 'assistant',
-          content: m.content,
+          content: [
+            { type: 'image_url' as const, image_url: { url: m.metadata.imageData } },
+            { type: 'text' as const, text: m.content },
+          ],
         };
-      }),
-    ];
+      }
+      return {
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+      };
+    });
 
-    // Log context info
     if (hasSummaryContext) {
       console.log('[Conversation] Using summary +', contextMessages.length - 1, 'recent messages');
     } else {
@@ -326,10 +329,10 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
 
     // Generate request ID
     const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    set({ isStreaming: true, streamingContent: '', error: null, activeRequestId: requestId });
+    set({ isStreaming: true, streamingContent: '', error: null, activeRequestId: requestId, agentSteps: [] });
 
     try {
-      await window.electronAPI.aiChat(history, { requestId });
+      await window.electronAPI.agentRun(history, { requestId, attachments, pdfContext });
     } catch (err: any) {
       set({ isStreaming: false, error: err.message || 'AI 请求失败', activeRequestId: null });
     }
@@ -338,21 +341,42 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
   stopStreaming: async () => {
     const { activeRequestId } = get();
     if (activeRequestId) {
-      await window.electronAPI.aiStop(activeRequestId);
+      // Try agentStop first, then aiStop as fallback
+      const stopped = await window.electronAPI.agentStop(activeRequestId);
+      if (!stopped) {
+        await window.electronAPI.aiStop(activeRequestId);
+      }
     }
     set({ isStreaming: false, activeRequestId: null });
   },
 
   handleStreamEvent: (event: ChatStreamEvent) => {
-    const { activeRequestId, streamingContent } = get();
+    const { activeRequestId, streamingContent, agentSteps } = get();
     if (event.requestId !== activeRequestId) {
       console.log('[Renderer] Ignoring event for different request:', event.requestId);
       return;
     }
 
     switch (event.type) {
+      case 'agent_thought':
+        set({ agentSteps: [...agentSteps, { type: 'thought', content: event.thought }] });
+        break;
+      case 'agent_tool_call':
+        set({ agentSteps: [...agentSteps, {
+          type: 'tool_call',
+          content: `Calling ${event.toolCall.name}...`,
+          toolCall: { id: event.toolCall.id, name: event.toolCall.name, arguments: JSON.parse(event.toolCall.arguments || '{}') },
+        }] });
+        break;
+      case 'agent_tool_result':
+        set({ agentSteps: [...agentSteps, {
+          type: 'tool_result',
+          content: event.result,
+          toolResult: { toolCallId: event.toolCallId, content: event.result, isError: event.isError },
+        }] });
+        break;
+      case 'agent_answer':
       case 'chunk':
-        // Log first few chunks to debug latency
         if (streamingContent.length < 100) {
           console.log('[Renderer] Received chunk, content length:', event.content?.length, 'total:', streamingContent.length + (event.content?.length || 0));
         }
@@ -360,18 +384,19 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
         break;
       case 'done': {
         console.log('[Renderer] Stream done, final content length:', get().streamingContent.length);
-        const { streamingContent, activeConversationId, currentWorkspacePath } = get();
-        if (streamingContent && activeConversationId && currentWorkspacePath) {
+        const { streamingContent: finalContent, activeConversationId, currentWorkspacePath, agentSteps: finalAgentSteps } = get();
+        if (finalContent && activeConversationId && currentWorkspacePath) {
           window.electronAPI.messageAdd(currentWorkspacePath, {
             conversationId: activeConversationId,
             role: 'assistant',
-            content: streamingContent,
+            content: finalContent,
             contentType: 'text',
+            metadata: finalAgentSteps.length > 0 ? { agentSteps: finalAgentSteps } : undefined,
           }).then(assistantMsg => {
             set(s => ({ messages: [...s.messages, assistantMsg] }));
           });
         }
-        set({ isStreaming: false, streamingContent: '', activeRequestId: null });
+        set({ isStreaming: false, streamingContent: '', activeRequestId: null, agentSteps: [] });
         if (unsubStreamEvent) { unsubStreamEvent(); unsubStreamEvent = null; }
         break;
       }
@@ -394,6 +419,19 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
       }));
     } catch (error) {
       console.error('Failed to update conversation title:', error);
+    }
+  },
+
+  updateConversationPdfContext: async (workspacePath: string, id: string, pdfContext: import('../../shared/types').PdfContext) => {
+    try {
+      await window.electronAPI.conversationUpdate(workspacePath, id, { pdfContext });
+      set(s => ({
+        conversations: s.conversations.map(c =>
+          c.id === id ? { ...c, pdfContext } : c
+        ),
+      }));
+    } catch (error) {
+      console.error('Failed to update conversation pdfContext:', error);
     }
   },
 }));

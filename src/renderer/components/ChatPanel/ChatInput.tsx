@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Send, Square, X, Image as ImageIcon } from 'lucide-react';
+import { Send, Square, X, Image as ImageIcon, Paperclip } from 'lucide-react';
 
 interface ChatInputProps {
   onSend: (content: string, imageData?: string) => void;
@@ -8,13 +8,26 @@ interface ChatInputProps {
   pendingImage?: string | null;
   onClearImage?: () => void;
   initialText?: string;
+  pendingAttachment?: { name: string; path: string } | null;
+  onClearAttachment?: () => void;
+  onSelectAttachment?: () => void;
 }
 
-const ChatInput: React.FC<ChatInputProps> = ({ onSend, isStreaming, onStop, pendingImage, onClearImage, initialText = '' }) => {
+const ChatInput: React.FC<ChatInputProps> = ({
+  onSend,
+  isStreaming,
+  onStop,
+  pendingImage,
+  onClearImage,
+  initialText = '',
+  pendingAttachment,
+  onClearAttachment,
+  onSelectAttachment,
+}) => {
   const [input, setInput] = useState(initialText);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Update input when initialText changes (e.g., when screenshot prompt is set)
+  // Update input when initialText changes (e.g. when screenshot prompt is set)
   useEffect(() => {
     if (initialText) {
       setInput(initialText);
@@ -28,15 +41,16 @@ const ChatInput: React.FC<ChatInputProps> = ({ onSend, isStreaming, onStop, pend
 
   const handleSend = useCallback(() => {
     const trimmed = input.trim();
-    if ((!trimmed && !pendingImage) || isStreaming) return;
+    if ((!trimmed && !pendingImage && !pendingAttachment) || isStreaming) return;
     onSend(trimmed, pendingImage || undefined);
     setInput('');
     onClearImage?.();
+    onClearAttachment?.();
     // Reset textarea height
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
-  }, [input, isStreaming, onSend, pendingImage, onClearImage]);
+  }, [input, isStreaming, onSend, pendingImage, pendingAttachment, onClearImage, onClearAttachment]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -72,7 +86,30 @@ const ChatInput: React.FC<ChatInputProps> = ({ onSend, isStreaming, onStop, pend
           </button>
         </div>
       )}
+      {/* Pending Attachment Preview */}
+      {pendingAttachment && (
+        <div className="mb-2 inline-flex items-center gap-1 px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-xs text-gray-700 dark:text-gray-200">
+          <Paperclip className="w-3 h-3" />
+          <span className="max-w-[200px] truncate">{pendingAttachment.name}</span>
+          <button
+            onClick={onClearAttachment}
+            className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded"
+            title="删除附件"
+          >
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+      )}
       <div className="flex items-end gap-2">
+        <div className="flex items-center gap-1">
+          <button
+            onClick={onSelectAttachment}
+            className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+            title="添加 PDF 附件"
+          >
+            <Paperclip className="w-4 h-4 text-gray-500" />
+          </button>
+        </div>
         <textarea
           ref={textareaRef}
           value={input}
@@ -91,7 +128,7 @@ const ChatInput: React.FC<ChatInputProps> = ({ onSend, isStreaming, onStop, pend
           </button>
         ) : (
           <button onClick={handleSend}
-            disabled={!input.trim() && !pendingImage}
+            disabled={!input.trim() && !pendingImage && !pendingAttachment}
             className="p-2 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex-shrink-0"
             title="发送">
             <Send className="w-4 h-4" />

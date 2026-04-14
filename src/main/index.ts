@@ -19,6 +19,8 @@ import { getConversationStore } from './services/conversation-store';
 import { getAnnotationStore } from './services/annotation-store';
 import { estimateTokens, splitIntoChunks, buildContextWindow } from './services/context-manager';
 import { analyzePaper, createAnalysisPrompt } from './services/paper-analysis';
+import { startAgentLoop, stopAgentLoop } from './agent/agent-service';
+import { buildPdfContext } from './services/pdf-context';
 import type { AIProviderConfig } from '../shared/types/ai';
 
 // Keep a global reference of the window object
@@ -426,6 +428,28 @@ ipcMain.handle('context:buildWindow', (_event, messages: any[], maxTokens?: numb
 ipcMain.handle('paper:analyze', async (_event, paper: any, existingTags: any[]) => {
   const prompt = createAnalysisPrompt(paper);
   return analyzePaper(prompt, existingTags);
+});
+
+// Agent IPC handlers
+ipcMain.handle('agent:run', async (_event, messages: any[], options?: any) => {
+  if (!mainWindow) throw new Error('窗口未就绪');
+  return startAgentLoop(mainWindow, messages, options);
+});
+
+ipcMain.handle('agent:stop', async (_event, requestId: string) => {
+  return stopAgentLoop(requestId);
+});
+
+// PDF context builder
+ipcMain.handle('pdf:buildContext', async (_event, filePath: string, fileName: string) => {
+  return buildPdfContext(filePath, fileName);
+});
+
+// Dialog helper for renderer
+ipcMain.handle('dialog:showOpenDialog', async (_event, options?: any) => {
+  if (!mainWindow) return { canceled: true, filePaths: [] };
+  const result = await dialog.showOpenDialog(mainWindow, options || {});
+  return result;
 });
 
 // Desktop capturer IPC handler

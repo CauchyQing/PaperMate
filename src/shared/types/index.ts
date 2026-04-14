@@ -78,6 +78,14 @@ export interface Tag {
 }
 
 // Conversation types
+export interface PdfContext {
+  filePath: string;
+  fileName: string;
+  extractedText?: string;
+  structuredSummary?: string;
+  extractedAt?: number;
+}
+
 export interface Conversation {
   id: string;
   paperId?: string;
@@ -87,6 +95,7 @@ export interface Conversation {
   updatedAt: number;
   messageCount: number;
   contextSummary?: string;
+  pdfContext?: PdfContext;
 }
 
 export interface Message {
@@ -99,9 +108,14 @@ export interface Message {
     pageNumber?: number;
     selectedText?: string;
     imageData?: string;
+    attachments?: Array<{ type: 'pdf'; path: string; name: string }>;
+    agentSteps?: import('./agent').AgentStep[];
   };
   timestamp: number;
 }
+
+// Agent types
+export * from './agent';
 
 // Annotation types
 export * from './annotation';

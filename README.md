@@ -2,28 +2,21 @@
 
 PaperMate 是一款基于 Electron 的桌面端学术论文阅读工具，集成 AI 助手功能，帮助研究人员高效阅读、理解和管理学术论文。
 
-![版本](https://img.shields.io/badge/version-1.1.0-blue)
+![版本](https://img.shields.io/badge/version-2.0.0-blue)
 ![许可证](https://img.shields.io/badge/license-CC%20BY--NC%204.0-orange)
 
-## 功能特性
+## 2.0.0 重磅更新：ReAct Agent + Skill 系统
 
-### 核心功能
+v2.0.0 引入了**完整的 ReAct Agent 架构**和**兼容 Claude Code 的 Skill 系统**。AI 不再只是单轮问答，而是能够自主思考、调用工具、完成任务。
 
-- **工作区模式** - 采用项目/工作区模式管理论文，所有数据保存在本地文件夹，便于协作和版本控制
-- **PDF 阅读器** - 支持缩放、多标签页阅读
-- **AI 助手** - 支持 OpenAI 兼容接口，可连接任意大模型平台（OpenAI、DeepSeek、本地模型等）
-- **文本划选** - 划选 PDF 文本，一键翻译、解释或提问
-- **截图提问** - 框选 PDF 区域截图，AI 视觉理解并回答
-- **多维度分类** - 支持年份、期刊、主题标签、关键词等多维度分类管理
-- **历史会话** - 自动保存对话历史，支持搜索、重命名、删除
-- **标记功能** - 高亮/下划线标记 PDF 内容，添加批注笔记，侧边栏快速导航（v1.1.0 新增）
+### 核心新功能
 
-### AI 功能
-
-- **论文翻译** - 逐段翻译，保持学术术语准确性，维护术语表保证一致性
-- **内容解释** - 解释复杂概念、数学公式、图表结果
-- **智能分析** - 自动分析论文内容，建议分类标签
-- **上下文管理** - 滑动窗口 + 术语表，优化长对话 token 使用
+- **ReAct Agent 循环** - AI 会分析你的需求，自动决定调用哪些工具，完成多步任务
+- **PDF 智能提取** - 上传 PDF 后，AI 自动提取文本并生成结构化摘要，后续对话无需重复提取
+- **浏览器搜索** - 内置浏览器自动化能力，可直接在 Google Scholar、Bilibili 等网站搜索并提取结果
+- **Skill 系统** - 兼容 Claude Code `skill-name/SKILL.md` 格式，放入目录即可扩展新能力
+- **Agent 过程可视化** - 聊天界面实时显示 AI 的“思考 → 调用工具 → 观察结果 → 最终回答”完整链路
+- **多轮上下文缓存** - 同一对话内，PDF 内容会被缓存，后续提问秒回，不需要重新上传
 
 ## 安装
 
@@ -62,8 +55,67 @@ npm run package:win
 2. 配置 AI 供应商（设置 → AI 设置）
    - 支持 OpenAI、DeepSeek、Ollama 本地模型等
    - 输入 API Key 和 Base URL
-3. 选择 PDF 文件
-4. 开始阅读，划选文字或截图向 AI 提问
+3. 选择 PDF 文件开始阅读，或直接打开 AI 助手聊天窗口
+
+### Agent + Skill 功能（开箱即用）
+
+PaperMate 2.0 内置了多个常用 Skill，**无需额外配置即可使用**：
+
+| 功能 | 说明 | 使用方式 |
+|------|------|----------|
+| **PDF 解析** | 自动提取 PDF 文本并生成结构化摘要 | 在聊天框点击 📎 上传 PDF，直接提问 |
+| **浏览器搜索** | 在 Google Scholar、Bilibili 等网站搜索 | 直接说"帮我搜索 xxx" |
+| **Bash 执行** | 执行系统命令和脚本 | Skill 内部自动使用 |
+
+#### 示例 1：上传 PDF 并总结
+
+1. 新建一个 AI 对话
+2. 点击输入框左侧的 📎 按钮，选择一份本地 PDF
+3. 输入："帮我总结一下这篇论文"
+4. AI 会自动：
+   - 提取 PDF 文本
+   - 生成结构化摘要（标题、背景、方法、实验、结论、关键词）
+   - 返回总结
+
+**后续对话**：你可以直接继续问"方法部分怎么设计的？"、"实验结果如何？"，AI 会基于已缓存的 PDF 内容秒回，**不需要再次上传**。
+
+#### 示例 2：搜索相关论文
+
+1. 上传 PDF 后，输入："帮我提取关键词并在 Google Scholar 搜索相关论文"
+2. AI 会自动：
+   - 从 PDF 中提取关键词
+   - 打开 Google Scholar 搜索
+   - 返回相关论文列表
+
+#### 示例 3：任意网页搜索
+
+直接输入：
+- "打开 arxiv 查找关于 reinforcement learning 的最新论文"
+- "在 Google Scholar 搜索 GAN 在医学图像中的应用"
+
+AI 会自动调用浏览器工具完成搜索并提取结果。
+
+### 推荐安装（可选但强烈建议）
+
+虽然 PaperMate 的 PDF 提取内置了多重 fallback，但安装 **PyMuPDF** 后，提取速度和准确性会有质的飞跃：
+
+```bash
+pip install pymupdf
+```
+
+如果你没有 Python 环境，以下替代方案也可以：
+
+```bash
+# macOS
+brew install poppler
+
+# 或安装 Python 库
+pip install pypdf
+# 或
+pip install pdfplumber
+```
+
+> **注意**：如果没有安装上述任何工具，第一次上传 PDF 时会提示安装。安装一次后，所有对话都能受益。
 
 ### 工作区模式
 
@@ -80,10 +132,28 @@ PaperMate 采用类似 VS Code 的工作区模式：
 
 | 供应商 | Base URL | 支持模型 |
 |-------|----------|---------|
-| OpenAI | `https://api.openai.com/v1` | gpt-4o, gpt-4o-mini |
+| OpenAI | `https://api.openai.com/v1` | gpt系列模型 |
 | DeepSeek | `https://api.deepseek.com/v1` | deepseek-chat, deepseek-reasoner |
 | Ollama (本地) | `http://localhost:11434/v1` | 本地部署模型 |
 | 自定义 | 自定义地址 | 任意兼容模型 |
+
+## 扩展 Skill（高级）（未完全测试）
+
+PaperMate 的 Skill 系统完全兼容 Claude Code 的 `skill-name/SKILL.md` 格式。
+
+### 添加自定义 Skill
+
+1. 在 `~/.papermate/skills/` 下创建新目录，例如 `my-skill/`
+2. 编写 `SKILL.md`：
+
+```markdown
+---
+name: my-skill
+description: 我的自定义工具
+allowed-tools: [bash, cdp_new]
+---
+
+> 内置的 `web-access` 和 `pdf` skills 已经预装在 `~/.papermate/skills/` 目录下，可以直接修改或参考。
 
 ## 项目结构
 
@@ -91,6 +161,9 @@ PaperMate 采用类似 VS Code 的工作区模式：
 papermate/
 ├── src/
 │   ├── main/           # Electron 主进程
+│   │   ├── agent/      # ReAct Agent 循环 + Tool Registry
+│   │   ├── skills/     # Skill 加载器和运行时
+│   │   └── services/   # AI 服务、PDF 上下文、对话存储
 │   ├── renderer/       # React 前端
 │   └── shared/         # 共享类型定义
 ├── resources/          # 静态资源
@@ -99,8 +172,9 @@ papermate/
 # 工作区结构示例
 my-research/
 ├── .papermate/         # PaperMate 数据
-│   ├── database/       # SQLite 数据库
-│   └── settings.json   # 工作区设置
+│   ├── database/       # JSON 数据库
+│   ├── settings.json   # 工作区设置
+│   └── skills/         # 工作区专属 skills
 └── papers/             # 论文文件
 ```
 
@@ -129,6 +203,7 @@ npm run preview
 - **前端**: React 18 + TypeScript + TailwindCSS
 - **状态管理**: Zustand
 - **PDF 渲染**: react-pdf (PDF.js)
+- **浏览器自动化**: Playwright + Chrome DevTools Protocol
 - **构建工具**: Vite
 
 ## 许可证

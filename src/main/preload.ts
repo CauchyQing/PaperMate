@@ -57,6 +57,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   aiTestConnection: (provider: any) => ipcRenderer.invoke('ai:testConnection', provider),
   aiChat: (messages: any[], options?: { requestId?: string; temperature?: number; maxTokens?: number; stream?: boolean; providerId?: string }) => ipcRenderer.invoke('ai:chat', messages, options),
   aiStop: (requestId: string) => ipcRenderer.invoke('ai:stop', requestId),
+  agentRun: (messages: any[], options?: { requestId?: string; maxIterations?: number; providerId?: string; attachments?: Array<{ type: string; path: string; name: string }> }) => ipcRenderer.invoke('agent:run', messages, options),
+  agentStop: (requestId: string) => ipcRenderer.invoke('agent:stop', requestId),
+  showOpenDialog: (options?: any) => ipcRenderer.invoke('dialog:showOpenDialog', options),
+  buildPdfContext: (filePath: string, fileName: string) => ipcRenderer.invoke('pdf:buildContext', filePath, fileName),
   onAIStreamEvent: (callback: (event: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on('ai:stream-event', handler);
@@ -129,6 +133,10 @@ declare global {
       aiTestConnection: (provider: any) => Promise<{ success: boolean; error?: string }>;
       aiChat: (messages: any[], options?: { requestId?: string; temperature?: number; maxTokens?: number; stream?: boolean; providerId?: string }) => Promise<string>;
       aiStop: (requestId: string) => Promise<boolean>;
+      agentRun: (messages: any[], options?: { requestId?: string; maxIterations?: number; providerId?: string; attachments?: Array<{ type: string; path: string; name: string }>; pdfContext?: { filePath: string; fileName: string; extractedText?: string; structuredSummary?: string; extractedAt?: number } }) => Promise<string>;
+      agentStop: (requestId: string) => Promise<boolean>;
+      showOpenDialog: (options?: any) => Promise<{ canceled: boolean; filePaths: string[] }>;
+      buildPdfContext: (filePath: string, fileName: string) => Promise<{ filePath: string; fileName: string; extractedText?: string; structuredSummary?: string; extractedAt?: number }>;
       onAIStreamEvent: (callback: (event: any) => void) => () => void;
       // Conversation operations
       conversationList: (workspacePath: string) => Promise<any[]>;

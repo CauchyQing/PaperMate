@@ -12,7 +12,7 @@ const ChatPanel: React.FC = () => {
   const { currentWorkspace } = useWorkspaceStore();
   const {
     conversations, activeConversationId, messages,
-    isStreaming, streamingContent, error, prefillText,
+    isStreaming, streamingContent, error, prefillText, agentSteps,
     loadConversations, createConversation, setActiveConversation,
     sendMessage, stopStreaming, clearError, setPrefillText,
   } = useConversationStore();
@@ -22,6 +22,7 @@ const ChatPanel: React.FC = () => {
   const [isCapturing, setIsCapturing] = useState(false);
   const [pendingImage, setPendingImage] = useState<string | null>(null);
   const [screenshotPrompt, setScreenshotPrompt] = useState<string>('');
+  const [pendingAttachment, setPendingAttachment] = useState<{ path: string; name: string } | null>(null);
   const workspacePath = currentWorkspace?.path || '';
 
   const activeConv = conversations.find(c => c.id === activeConversationId);
@@ -48,13 +49,31 @@ const ChatPanel: React.FC = () => {
     // Auto-create conversation if none active
     if (!activeConversationId) {
       await createConversation(workspacePath, {
-        topic: content.slice(0, 30) + (content.length > 30 ? '...' : '截图翻译/分析'),
+        topic: content.slice(0, 30) + (content.length > 30 ? '...' : '新对话'),
       });
     }
-    await sendMessage(workspacePath, content, imageData ? { imageData } : undefined);
+    const metadata: Message['metadata'] = {};
+    if (imageData) metadata.imageData = imageData;
+    if (pendingAttachment) {
+      metadata.attachments = [{ type: 'pdf', path: pendingAttachment.path, name: pendingAttachment.name }];
+    }
+    await sendMessage(workspacePath, content, Object.keys(metadata).length > 0 ? metadata : undefined);
     setPendingImage(null);
+    setPendingAttachment(null);
     setScreenshotPrompt(''); // Clear screenshot prompt after sending
     setPrefillText(null); // Clear prefill text after sending
+  };
+
+  const handleSelectAttachment = async () => {
+    const result = await window.electronAPI.showOpenDialog({
+      properties: ['openFile'],
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    });
+    if (!result.canceled && result.filePaths.length > 0) {
+      const filePath = result.filePaths[0];
+      const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || 'unknown.pdf';
+      setPendingAttachment({ path: filePath, name: fileName });
+    }
   };
 
   const handleScreenshotCapture = (imageData: string, defaultPrompt?: string) => {
@@ -117,6 +136,7 @@ const ChatPanel: React.FC = () => {
               messages={messages}
               isStreaming={isStreaming}
               streamingContent={streamingContent}
+              agentSteps={agentSteps}
             />
             {error && (
               <div className="px-3 py-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-xs flex items-center justify-between">
@@ -132,6 +152,9 @@ const ChatPanel: React.FC = () => {
               pendingImage={pendingImage}
               onClearImage={() => setPendingImage(null)}
               initialText={screenshotPrompt || prefillText || ''}
+              pendingAttachment={pendingAttachment}
+              onClearAttachment={() => setPendingAttachment(null)}
+              onSelectAttachment={handleSelectAttachment}
             />
           </>
         )}

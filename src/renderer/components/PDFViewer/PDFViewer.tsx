@@ -13,10 +13,8 @@ import type { Annotation, AnnotationType } from '../../../shared/types/annotatio
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
 
-// Set PDF.js worker - different paths for dev and production
-// In dev: use node_modules directly, in production: use copied file
 pdfjs.GlobalWorkerOptions.workerSrc = import.meta.env.DEV
-  ? new URL('pdfjs-dist/build/pdf.worker.min.js', import.meta.url).href
+  ? '/pdf.worker.min.js'
   : './pdf.worker.min.js';
 
 const PDFViewer: React.FC = () => {

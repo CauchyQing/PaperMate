@@ -4,8 +4,13 @@ import { app } from 'electron';
 import type { GlobalConfig } from '../../shared/types';
 import type { AIProviderConfig } from '../../shared/types/ai';
 
-const GLOBAL_CONFIG_DIR = path.join(app.getPath('home'), '.papermate');
-const GLOBAL_CONFIG_PATH = path.join(GLOBAL_CONFIG_DIR, 'global-config.json');
+function getGlobalConfigDir(): string {
+  return path.join(app.getPath('home'), '.papermate');
+}
+
+function getGlobalConfigPath(): string {
+  return path.join(getGlobalConfigDir(), 'global-config.json');
+}
 
 const DEFAULT_GLOBAL_CONFIG: GlobalConfig = {
   version: '1.0.0',
@@ -22,7 +27,7 @@ export class ConfigService {
 
   async init(): Promise<void> {
     try {
-      const content = await fs.readFile(GLOBAL_CONFIG_PATH, 'utf-8');
+      const content = await fs.readFile(getGlobalConfigPath(), 'utf-8');
       this.config = { ...DEFAULT_GLOBAL_CONFIG, ...JSON.parse(content) };
     } catch {
       // Config doesn't exist, use defaults
@@ -31,8 +36,8 @@ export class ConfigService {
   }
 
   async save(): Promise<void> {
-    await fs.mkdir(GLOBAL_CONFIG_DIR, { recursive: true });
-    await fs.writeFile(GLOBAL_CONFIG_PATH, JSON.stringify(this.config, null, 2));
+    await fs.mkdir(getGlobalConfigDir(), { recursive: true });
+    await fs.writeFile(getGlobalConfigPath(), JSON.stringify(this.config, null, 2));
   }
 
   getConfig(): GlobalConfig {

@@ -7,15 +7,15 @@ import fs from 'fs';
 const copyAssetsPlugin = () => ({
   name: 'copy-assets',
   writeBundle() {
-    // Copy PDF.js worker
-    const workerSource = path.join(__dirname, 'node_modules/pdfjs-dist/build/pdf.worker.min.js');
+    // Copy PDF.js worker from react-pdf's bundled pdfjs-dist
+    const workerSource = path.join(__dirname, 'node_modules/react-pdf/node_modules/pdfjs-dist/build/pdf.worker.min.js');
     const workerDest = path.join(__dirname, 'dist/renderer/pdf.worker.min.js');
     if (fs.existsSync(workerSource)) {
       fs.copyFileSync(workerSource, workerDest);
       console.log('[vite] Copied pdf.worker.min.js to output directory');
     }
-    // Copy cmaps
-    const cmapsSource = path.join(__dirname, 'node_modules/pdfjs-dist/cmaps');
+    // Copy cmaps from react-pdf's bundled pdfjs-dist
+    const cmapsSource = path.join(__dirname, 'node_modules/react-pdf/node_modules/pdfjs-dist/cmaps');
     const cmapsDest = path.join(__dirname, 'dist/renderer/cmaps');
     if (fs.existsSync(cmapsSource)) {
       fs.mkdirSync(cmapsDest, { recursive: true });
@@ -39,6 +39,7 @@ export default defineConfig({
   plugins: [react(), copyAssetsPlugin()],
   root: path.join(__dirname, 'src/renderer'),
   base: './',
+  publicDir: 'public',
   build: {
     outDir: path.join(__dirname, 'dist/renderer'),
     emptyOutDir: true,
