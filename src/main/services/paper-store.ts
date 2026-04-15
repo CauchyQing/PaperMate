@@ -10,6 +10,7 @@ export class PaperStore {
     papers: Paper[];
     tags: Tag[];
   } = { papers: [], tags: [] };
+  private initialized = false;
 
   constructor(workspacePath: string) {
     this.workspacePath = workspacePath;
@@ -17,6 +18,7 @@ export class PaperStore {
   }
 
   async init(): Promise<void> {
+    if (this.initialized) return;
     try {
       const content = await fs.readFile(this.dbPath, 'utf-8');
       this.data = JSON.parse(content);
@@ -25,6 +27,7 @@ export class PaperStore {
       this.data = { papers: [], tags: [] };
       await this.save();
     }
+    this.initialized = true;
   }
 
   async save(): Promise<void> {

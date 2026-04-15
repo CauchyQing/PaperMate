@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { FileText, ChevronRight, ChevronDown, Highlighter, Underline } from 'lucide-react';
 import { useAnnotationStore } from '../../stores/annotation';
 import { useCategoryStore } from '../../stores/category';
@@ -9,26 +9,28 @@ import type { Annotation } from '../../../shared/types/annotation';
 const getFileName = (p: string) => p.split(/[\\/]/).pop() || p;
 
 const AnnotationSidebar: React.FC = () => {
-  const { currentWorkspace } = useWorkspaceStore();
-  const { openFile } = useFileStore();
-  const { papers, loadPapers } = useCategoryStore();
-  const { allAnnotations, isLoading, loadAllAnnotations, deleteAnnotation } = useAnnotationStore();
+  const currentWorkspace = useWorkspaceStore((s) => s.currentWorkspace);
+  const openFile = useFileStore((s) => s.openFile);
+  const papers = useCategoryStore((s) => s.papers);
+  const loadPapers = useCategoryStore((s) => s.loadPapers);
+  const allAnnotations = useAnnotationStore((s) => s.allAnnotations);
+  const isLoading = useAnnotationStore((s) => s.isLoading);
+  const loadAllAnnotations = useAnnotationStore((s) => s.loadAllAnnotations);
+  const deleteAnnotation = useAnnotationStore((s) => s.deleteAnnotation);
   const [expandedPapers, setExpandedPapers] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (currentWorkspace) {
-      console.log('[AnnotationSidebar] Loading annotations and papers for workspace:', currentWorkspace.path);
       loadAllAnnotations(currentWorkspace.path);
       loadPapers(currentWorkspace.path);
     }
-  }, [currentWorkspace, loadAllAnnotations, loadPapers]);
+  }, [currentWorkspace?.path, loadAllAnnotations, loadPapers]);
 
   const paperMap = useMemo(() => {
     const map = new Map<string, typeof papers[0]>();
     papers.forEach((p) => {
       map.set(p.id, p);
       map.set(p.filePath, p);
-      map.set(p.fileName, p);
     });
     return map;
   }, [papers]);
@@ -41,14 +43,13 @@ const AnnotationSidebar: React.FC = () => {
       }
       groups.get(a.paperId)!.push(a);
     });
-    // Sort each group's annotations by page number then time
     groups.forEach((list) => {
       list.sort((a, b) => a.pageNumber - b.pageNumber || a.createdAt - b.createdAt);
     });
     return Array.from(groups.entries());
   }, [allAnnotations]);
 
-  const togglePaper = (paperId: string) => {
+  const togglePaper = useCallback((paperId: string) => {
     setExpandedPapers((prev) => {
       const next = new Set(prev);
       if (next.has(paperId)) {
@@ -58,12 +59,11 @@ const AnnotationSidebar: React.FC = () => {
       }
       return next;
     });
-  };
+  }, []);
 
-  const findPaperByAnnotationId = (paperId: string) => {
+  const findPaperByAnnotationId = useCallback((paperId: string) => {
     let paper = paperMap.get(paperId);
     if (paper) return paper;
-    // paperId may be a relative path or filename
     return papers.find(
       (p) =>
         p.filePath === paperId ||
@@ -71,16 +71,12 @@ const AnnotationSidebar: React.FC = () => {
         p.filePath.endsWith(paperId) ||
         getFileName(p.filePath) === getFileName(paperId)
     );
-  };
+  }, [paperMap, papers]);
 
-  const handleAnnotationClick = async (paperId: string, pageNumber: number) => {
-    console.log('[AnnotationSidebar] Clicked annotation:', { paperId, pageNumber });
+  const handleAnnotationClick = useCallback(async (paperId: string, pageNumber: number) => {
     let paper = findPaperByAnnotationId(paperId);
-    console.log('[AnnotationSidebar] paper from store:', paper, 'paperMap size:', paperMap.size);
 
-    // Fallback: if papers haven't loaded into the category store yet, fetch them directly
     if (!paper && currentWorkspace) {
-      console.log('[AnnotationSidebar] paper not in store, fetching from main...');
       try {
         const allPapers = await window.electronAPI.paperGetAll(currentWorkspace.path);
         paper = allPapers.find(
@@ -91,32 +87,25 @@ const AnnotationSidebar: React.FC = () => {
             p.filePath.endsWith(paperId) ||
             getFileName(p.filePath) === getFileName(paperId)
         );
-        console.log('[AnnotationSidebar] fetched papers count:', allPapers.length, 'found paper:', paper);
       } catch (err) {
-        console.error('[AnnotationSidebar] Failed to fetch papers for annotation jump:', err);
+        // ignore
       }
     }
 
-    if (!paper) {
-      console.warn('[AnnotationSidebar] No paper found, aborting');
-      return;
-    }
+    if (!paper) return;
 
     const pdfFile = {
-      id: paper.filePath, // use filePath as id so PDFViewer can match it consistently
+      id: paper.filePath,
       name: paper.fileName,
       path: paper.filePath,
       relativePath: paper.filePath,
       size: 0,
       lastModified: paper.importedAt,
     };
-    console.log('[AnnotationSidebar] Opening file:', pdfFile);
     openFile(pdfFile);
 
-    // Set jump target for PDFViewer to handle once the file loads
-    console.log('[AnnotationSidebar] Setting jump target:', { paperId: paper.filePath, pageNumber });
     (window as any).setAnnotationJumpTarget?.(paper.filePath, pageNumber);
-  };
+  }, [currentWorkspace, findPaperByAnnotationId, openFile]);
 
   const workspacePath = currentWorkspace?.path || '';
 
@@ -142,7 +131,7 @@ const AnnotationSidebar: React.FC = () => {
         ) : (
           groupedAnnotations.map(([paperId, paperAnnotations]) => {
             const paper = findPaperByAnnotationId(paperId);
-            const displayTitle = paper?.displayTitle || paper?.fileName || getFileName(paperId);
+            const displayTitle = (paper as any)?.displayTitle || paper?.fileName || getFileName(paperId);
             const isExpanded = expandedPapers.has(paperId);
 
             return (

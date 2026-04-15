@@ -22,6 +22,10 @@ export interface Paper {
   rating?: Rating;
   importedAt: number;
   lastReadAt?: number;
+  lastReadPosition?: {
+    pageNumber: number;
+    scrollTop: number;
+  };
 }
 
 export interface Tag {

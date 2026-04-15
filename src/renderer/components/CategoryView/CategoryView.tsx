@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   Calendar,
   BookOpen,
@@ -34,15 +34,13 @@ const categoryButtons: {
 ];
 
 const CategoryView: React.FC = () => {
-  const { currentWorkspace } = useWorkspaceStore();
-  const { openFile } = useFileStore();
-  const {
-    categoryGroups,
-    activeCategory,
-    isLoading,
-    loadCategories,
-    setActiveCategory,
-  } = useCategoryStore();
+  const currentWorkspace = useWorkspaceStore((s) => s.currentWorkspace);
+  const openFile = useFileStore((s) => s.openFile);
+  const categoryGroups = useCategoryStore((s) => s.categoryGroups);
+  const activeCategory = useCategoryStore((s) => s.activeCategory);
+  const isLoading = useCategoryStore((s) => s.isLoading);
+  const loadCategories = useCategoryStore((s) => s.loadCategories);
+  const setActiveCategory = useCategoryStore((s) => s.setActiveCategory);
 
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
@@ -51,9 +49,9 @@ const CategoryView: React.FC = () => {
       loadCategories(currentWorkspace.path, activeCategory as CategoryType);
       setExpandedGroups(new Set()); // 重置展开状态
     }
-  }, [currentWorkspace, activeCategory, loadCategories]);
+  }, [currentWorkspace?.path, activeCategory, loadCategories]);
 
-  const toggleGroup = (groupId: string) => {
+  const toggleGroup = useCallback((groupId: string) => {
     setExpandedGroups((prev) => {
       const newSet = new Set(prev);
       if (newSet.has(groupId)) {
@@ -63,9 +61,9 @@ const CategoryView: React.FC = () => {
       }
       return newSet;
     });
-  };
+  }, []);
 
-  const handlePaperClick = (paper: Paper) => {
+  const handlePaperClick = useCallback((paper: Paper) => {
     const pdfFile = {
       id: paper.filePath,
       name: paper.fileName,
@@ -75,7 +73,7 @@ const CategoryView: React.FC = () => {
       lastModified: paper.importedAt,
     };
     openFile(pdfFile);
-  };
+  }, [openFile]);
 
   return (
     <div className="h-full flex flex-col bg-gray-50 dark:bg-gray-800">

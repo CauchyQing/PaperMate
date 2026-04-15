@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
-import { ZoomIn, ZoomOut, RotateCw, FileText, Bookmark } from 'lucide-react';
+import { ZoomIn, ZoomOut, RotateCw, FileText, Bookmark, List } from 'lucide-react';
 import { useFileStore } from '../../stores/file';
 import { useConversationStore } from '../../stores/conversation';
 import { useWorkspaceStore } from '../../stores/workspace';
@@ -9,7 +9,9 @@ import SelectionToolbar from '../SelectionToolbar/SelectionToolbar';
 import { PageAnnotations } from './PageAnnotations';
 import { AnnotationEditPopover } from './AnnotationEditPopover';
 import { AnnotationCreateDialog } from '../AnnotationDialog/AnnotationCreateDialog';
+import PDFOutline from './PDFOutline';
 import type { Annotation, AnnotationType } from '../../../shared/types/annotation';
+import type { PDFDocumentProxy } from 'pdfjs-dist';
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
 
@@ -17,12 +19,87 @@ pdfjs.GlobalWorkerOptions.workerSrc = import.meta.env.DEV
   ? '/pdf.worker.min.js'
   : './pdf.worker.min.js';
 
+// Suppress harmless react-pdf / pdfjs warnings when pages are unmounted before text-layer finishes
+const originalWarn = console.warn;
+console.warn = (...args: any[]) => {
+  const msg = args[0]?.toString?.() || '';
+  if (
+    msg.includes('TextLayer task cancelled') ||
+    msg.includes('Worker task was terminated') ||
+    msg.includes('ignoring errors during "GetTextContent')
+  ) {
+    return;
+  }
+  originalWarn.apply(console, args);
+};
+
+const PAGE_MARGIN = 16; // 1rem
+const FALLBACK_PAGE_HEIGHT = 800;
+const BUFFER_PAGES = 2;
+
+interface PDFPageItemProps {
+  pageNum: number;
+  scale: number;
+  rotation: number;
+  annotations: Annotation[];
+  editingAnnotation: { annotation: Annotation; pageNumber: number; rect: { left: number; top: number; width: number; height: number } } | null;
+  onAnnotationClick: (anno: Annotation, rect: { left: number; top: number; width: number; height: number }) => void;
+  onSave: (id: string, title: string, comment: string) => void;
+  onDelete: (id: string) => void;
+  onCloseEdit: () => void;
+  onPageLoadSuccess?: (page: any) => void;
+}
+
+const PDFPageItem = React.memo<PDFPageItemProps>(({
+  pageNum,
+  scale,
+  rotation,
+  annotations,
+  editingAnnotation,
+  onAnnotationClick,
+  onSave,
+  onDelete,
+  onCloseEdit,
+  onPageLoadSuccess,
+}) => {
+  return (
+    <div data-page-num={pageNum} style={{ marginBottom: PAGE_MARGIN }} className="shadow-lg bg-white dark:bg-gray-900 relative">
+      <Page
+        pageNumber={pageNum}
+        scale={scale}
+        rotate={rotation}
+        renderTextLayer={true}
+        renderAnnotationLayer={true}
+        onLoadSuccess={onPageLoadSuccess}
+        loading={
+          <div style={{ width: 600, height: 800 }} className="flex items-center justify-center bg-gray-200 dark:bg-gray-700">
+            <div className="animate-pulse text-gray-400">Loading page {pageNum}...</div>
+          </div>
+        }
+      />
+      <PageAnnotations
+        annotations={annotations}
+        scale={scale}
+        onAnnotationClick={onAnnotationClick}
+      />
+      {editingAnnotation && editingAnnotation.pageNumber === pageNum && (
+        <AnnotationEditPopover
+          annotation={editingAnnotation.annotation}
+          rect={editingAnnotation.rect}
+          onSave={onSave}
+          onDelete={onDelete}
+          onClose={onCloseEdit}
+        />
+      )}
+    </div>
+  );
+});
+
 const PDFViewer: React.FC = () => {
   const { activeFileId, openFiles } = useFileStore();
   const [numPages, setNumPages] = useState<number>(0);
   const [scale, setScale] = useState<number>(1.2);
   const [rotation, setRotation] = useState<number>(0);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [pdfData, setPdfData] = useState<Uint8Array | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -31,10 +108,18 @@ const PDFViewer: React.FC = () => {
   const { annotations, loadAnnotations, createAnnotation, updateAnnotation, deleteAnnotation } = useAnnotationStore();
   const workspacePath = currentWorkspace?.path || '';
 
-  // Virtual scrolling state - only render visible pages
-  const [visibleRange, setVisibleRange] = useState({ start: 1, end: 3 });
-  const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
-  const observerRef = useRef<IntersectionObserver | null>(null);
+  // PDF outline
+  const [outline, setOutline] = useState<Awaited<ReturnType<PDFDocumentProxy['getOutline']>> | null>(null);
+  const pdfRef = useRef<PDFDocumentProxy | null>(null);
+  const [showOutlinePanel, setShowOutlinePanel] = useState<boolean>(false);
+
+  // Virtual scrolling state
+  const [visibleRange, setVisibleRange] = useState({ start: 1, end: 1 + BUFFER_PAGES * 2 });
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // Page size cache for stable placeholders
+  const pageSizesRef = useRef<Map<number, { width: number; height: number }>>(new Map());
+  const [pageSizesVersion, setPageSizesVersion] = useState(0);
 
   // Annotation creation dialog state
   const [creatingAnnotation, setCreatingAnnotation] = useState<{
@@ -54,16 +139,93 @@ const PDFViewer: React.FC = () => {
     rect: { left: number; top: number; width: number; height: number };
   } | null>(null);
 
+  // Jump target from sidebar / outline
+  const jumpTargetRef = useRef<{ paperId: string; pageNumber: number } | null>(null);
+  const hasRestoredRef = useRef(false);
+
   const activeFile = openFiles.find((f) => f.id === activeFileId);
 
-  // Global jump target for sidebar navigation
-  const globalPendingJump = useRef<{ paperId: string | null; pageNumber: number | null }>({ paperId: null, pageNumber: null });
+  // Refs to avoid recreating callbacks/effects on every state change
+  const activeFileRef = useRef(activeFile);
+  const numPagesRef = useRef(numPages);
+  const scaleRef = useRef(scale);
+  const workspacePathRef = useRef(workspacePath);
+  const paperIdRef = useRef<string | null>(null);
+
+  useEffect(() => { activeFileRef.current = activeFile; }, [activeFile]);
+  useEffect(() => { numPagesRef.current = numPages; }, [numPages]);
+  useEffect(() => { scaleRef.current = scale; }, [scale]);
+  useEffect(() => { workspacePathRef.current = workspacePath; }, [workspacePath]);
+
+  const getPageHeight = useCallback((pageNum: number) => {
+    const size = pageSizesRef.current.get(pageNum);
+    return size ? size.height * scaleRef.current : FALLBACK_PAGE_HEIGHT * scaleRef.current;
+  }, []);
+
+  const getPageOffset = useCallback((pageNum: number) => {
+    let offset = 0;
+    for (let i = 1; i < pageNum; i++) {
+      offset += getPageHeight(i) + PAGE_MARGIN;
+    }
+    return offset;
+  }, [getPageHeight]);
+
+  const totalHeight = useMemo(() => {
+    let h = 0;
+    for (let i = 1; i <= numPages; i++) {
+      h += getPageHeight(i) + PAGE_MARGIN;
+    }
+    return h + 64; // py-8 padding top+bottom approx
+  }, [numPages, scale, pageSizesVersion]);
+
+  const getCurrentPage = useCallback(() => {
+    const container = scrollContainerRef.current;
+    const np = numPagesRef.current;
+    if (!container || np === 0) return 1;
+    const scrollTop = container.scrollTop;
+    let cp = 1;
+    let accumulated = 0;
+    for (let i = 1; i <= np; i++) {
+      const h = getPageHeight(i) + PAGE_MARGIN;
+      if (accumulated + h / 2 > scrollTop) {
+        cp = i;
+        break;
+      }
+      accumulated += h;
+      if (i === np) cp = np;
+    }
+    return cp;
+  }, [getPageHeight]);
+
+  const suppressScrollRef = useRef(false);
+
+  const jumpToPage = useCallback((pageNumber: number) => {
+    const container = scrollContainerRef.current;
+    if (!container || numPagesRef.current === 0) return;
+    const targetScrollTop = getPageOffset(pageNumber);
+    suppressScrollRef.current = true;
+    container.style.scrollBehavior = 'auto';
+    container.scrollTop = targetScrollTop;
+    container.style.scrollBehavior = '';
+    const newStart = Math.max(1, pageNumber - BUFFER_PAGES);
+    const newEnd = Math.min(numPagesRef.current, pageNumber + BUFFER_PAGES + 1);
+    setVisibleRange({ start: newStart, end: newEnd });
+    setCurrentPage(pageNumber);
+    window.setTimeout(() => {
+      suppressScrollRef.current = false;
+    }, 150);
+  }, [getPageOffset]);
+
+  // Expose jump target setter globally for AnnotationSidebar
   useEffect(() => {
     (window as any).setAnnotationJumpTarget = (paperId: string, pageNumber: number) => {
-      console.log('[PDFViewer] Jump target set:', { paperId, pageNumber });
-      globalPendingJump.current = { paperId, pageNumber };
+      jumpTargetRef.current = { paperId, pageNumber };
+      const file = activeFileRef.current;
+      if (file && (file.id === paperId || file.path === paperId) && numPagesRef.current > 0) {
+        jumpToPage(pageNumber);
+      }
     };
-  }, []);
+  }, [jumpToPage]);
 
   // Memoize options for CMap support - use local files
   const documentOptions = useMemo(() => ({
@@ -74,58 +236,88 @@ const PDFViewer: React.FC = () => {
   // Memoize the file object to prevent unnecessary reloads
   const fileProp = useMemo(() => {
     if (!pdfData) return undefined;
-    // Create a deep copy of the data for react-pdf
     const clonedData = pdfData.slice();
     return { data: clonedData };
   }, [pdfData]);
 
   // Load PDF file when active file changes
   useEffect(() => {
-    console.log('[PDFViewer] activeFile changed:', activeFile?.id, activeFile?.name);
     if (!activeFile) {
       setPdfData(null);
       setNumPages(0);
-      setVisibleRange({ start: 1, end: 3 });
+      setVisibleRange({ start: 1, end: 1 + BUFFER_PAGES * 2 });
+      setCurrentPage(1);
+      setOutline(null);
+      pdfRef.current = null;
+      paperIdRef.current = null;
+      pageSizesRef.current.clear();
+      setPageSizesVersion(0);
+      jumpTargetRef.current = null;
+      hasRestoredRef.current = false;
       return;
     }
 
     setPdfData(null);
     setNumPages(0);
+    setOutline(null);
+    pdfRef.current = null;
+    paperIdRef.current = null;
+    pageSizesRef.current.clear();
+    setPageSizesVersion(0);
+    hasRestoredRef.current = false;
+
+    if (jumpTargetRef.current) {
+      if (jumpTargetRef.current.paperId !== activeFile.id && jumpTargetRef.current.paperId !== activeFile.path) {
+        jumpTargetRef.current = null;
+      } else {
+        hasRestoredRef.current = true;
+      }
+    }
+
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = 0;
+    }
 
     const loadPdf = async () => {
-      setIsLoading(true);
       setError(null);
-      console.log('[PDFViewer] Loading PDF:', activeFile.path);
       try {
         const base64 = await window.electronAPI.readFile(activeFile.path);
-        console.log('[PDFViewer] File read success, base64 length:', base64.length);
         if (base64.length === 0) {
           throw new Error('File is empty');
         }
-        // Convert base64 to Uint8Array
         const binaryString = atob(base64);
-        console.log('[PDFViewer] Base64 decoded, binary length:', binaryString.length);
         const bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) {
           bytes[i] = binaryString.charCodeAt(i);
         }
-        console.log('[PDFViewer] Uint8Array created, bytes:', bytes.length);
-        // Check if it looks like a PDF (starts with %PDF)
-        const header = String.fromCharCode(...bytes.slice(0, 5));
-        console.log('[PDFViewer] File header:', header);
-        if (!header.startsWith('%PDF')) {
-          console.warn('[PDFViewer] Warning: File does not look like a PDF');
-        }
         setPdfData(bytes);
+
+        if (workspacePath) {
+          try {
+            const papers = await window.electronAPI.paperGetAll(workspacePath);
+            const paper = papers.find((p: any) => p.filePath === activeFile.path);
+            if (paper) {
+              paperIdRef.current = paper.id;
+            }
+          } catch {
+            // ignore
+          }
+        }
       } catch (err) {
-        console.error('[PDFViewer] Load error:', err);
         setError(`Failed to load PDF: ${err instanceof Error ? err.message : String(err)}`);
-        setIsLoading(false);
       }
     };
 
     loadPdf();
-  }, [activeFile]);
+
+    return () => {
+      if (debounceSaveRef.current) {
+        clearTimeout(debounceSaveRef.current);
+        debounceSaveRef.current = null;
+      }
+      saveReadPosition();
+    };
+  }, [activeFile, workspacePath]);
 
   // Load annotations when active file changes
   useEffect(() => {
@@ -134,210 +326,240 @@ const PDFViewer: React.FC = () => {
     }
   }, [activeFile, workspacePath, loadAnnotations]);
 
-  // Handle pending jump from sidebar for already-loaded documents
-  useEffect(() => {
-    console.log('[PDFViewer] Pending jump check:', {
-      hasActiveFile: !!activeFile,
-      activeFileId: activeFile?.id,
-      pendingPaperId: globalPendingJump.current.paperId,
-      pendingPageNumber: globalPendingJump.current.pageNumber,
-      hasPdfData: !!pdfData,
-      numPages,
-    });
-    if (
-      activeFile &&
-      (globalPendingJump.current.paperId === activeFile.id || globalPendingJump.current.paperId === activeFile.path) &&
-      globalPendingJump.current.pageNumber &&
-      pdfData &&
-      numPages > 0
-    ) {
-      const pageNumber = globalPendingJump.current.pageNumber;
-      globalPendingJump.current.paperId = null;
-      globalPendingJump.current.pageNumber = null;
-      console.log('[PDFViewer] Executing jump for already-loaded doc, page:', pageNumber);
-      jumpToAnnotation({ pageNumber });
+  const restorePosition = useCallback(async () => {
+    const file = activeFileRef.current;
+    const ws = workspacePathRef.current;
+    const container = scrollContainerRef.current;
+    if (!file || !ws || !container) return;
+    try {
+      const papers = await window.electronAPI.paperGetAll(ws);
+      const paper = papers.find((p: any) => p.filePath === file.path);
+      if (paper?.lastReadPosition) {
+        const { pageNumber, scrollTop } = paper.lastReadPosition;
+        if (container.scrollTop === 0) {
+          // 先用 jumpToPage 设置正确的 visibleRange 并跳转到目标页
+          jumpToPage(pageNumber);
+          // 短暂延迟后，用保存的精确 scrollTop 做微调
+          window.setTimeout(() => {
+            suppressScrollRef.current = true;
+            container.style.scrollBehavior = 'auto';
+            container.scrollTop = scrollTop;
+            container.style.scrollBehavior = '';
+            window.setTimeout(() => {
+              suppressScrollRef.current = false;
+            }, 600);
+          }, 80);
+        }
+      }
+    } catch {
+      // ignore
     }
-  }, [activeFile, pdfData, numPages]);
+  }, [jumpToPage]);
 
-  const onDocumentLoadSuccess = useCallback(({ numPages }: { numPages: number }) => {
-    console.log('[PDFViewer] Document loaded, numPages:', numPages, 'activeFile:', activeFile?.id);
-    setNumPages(numPages);
-    setIsLoading(false);
+  // Document load success
+  const onDocumentLoadSuccess = useCallback((pdf: PDFDocumentProxy) => {
+    setNumPages(pdf.numPages);
+    pdfRef.current = pdf;
+    numPagesRef.current = pdf.numPages;
     setError(null);
 
-    // Handle pending jump after new document loads
-    if (
-      activeFile &&
-      (globalPendingJump.current.paperId === activeFile.id || globalPendingJump.current.paperId === activeFile.path) &&
-      globalPendingJump.current.pageNumber
-    ) {
-      const pageNumber = globalPendingJump.current.pageNumber;
-      globalPendingJump.current.paperId = null;
-      globalPendingJump.current.pageNumber = null;
-      console.log('[PDFViewer] Executing jump after document load, page:', pageNumber);
-      jumpToAnnotation({ pageNumber });
-      return;
+    pdf.getOutline().then(setOutline).catch(() => setOutline(null));
+
+    const file = activeFileRef.current;
+    if (file && jumpTargetRef.current) {
+      if (jumpTargetRef.current.paperId === file.id || jumpTargetRef.current.paperId === file.path) {
+        jumpToPage(jumpTargetRef.current.pageNumber);
+        jumpTargetRef.current = null;
+        return;
+      }
     }
 
-    // Scroll to top when new document loads (only if no pending jump)
-    if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTop = 0;
+    if (!hasRestoredRef.current) {
+      hasRestoredRef.current = true;
+      restorePosition();
     }
-  }, [activeFile]);
+  }, [jumpToPage, restorePosition]);
 
   const onDocumentLoadError = useCallback((error: Error) => {
-    console.error('[PDFViewer] Document load error:', error);
     setError(error.message);
-    setIsLoading(false);
   }, []);
 
-  // Setup intersection observer for virtual scrolling
-  useEffect(() => {
-    if (numPages === 0) return;
+  const onPageLoadSuccess = useCallback((page: any) => {
+    const prev = pageSizesRef.current.get(page.pageNumber);
+    if (!prev || prev.height !== page.originalHeight || prev.width !== page.originalWidth) {
+      pageSizesRef.current.set(page.pageNumber, {
+        width: page.originalWidth,
+        height: page.originalHeight,
+      });
+      setPageSizesVersion((v) => v + 1);
+    }
+  }, []);
 
-    // Cleanup previous observer
-    if (observerRef.current) {
-      observerRef.current.disconnect();
+  // Save read position (debounced)
+  const saveReadPosition = useCallback(() => {
+    const file = activeFileRef.current;
+    const ws = workspacePathRef.current;
+    const container = scrollContainerRef.current;
+    if (!file || !ws || !container) return;
+
+    const scrollTop = container.scrollTop;
+    const np = numPagesRef.current;
+    let pageNumber = 1;
+    let accumulated = 0;
+    for (let i = 1; i <= np; i++) {
+      const h = getPageHeight(i) + PAGE_MARGIN;
+      if (accumulated + h / 2 > scrollTop) {
+        pageNumber = i;
+        break;
+      }
+      accumulated += h;
+      if (i === np) pageNumber = np;
     }
 
-    observerRef.current = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          const pageNum = parseInt(entry.target.getAttribute('data-page-num') || '1', 10);
-          if (entry.isIntersecting) {
-            // Page is visible, ensure it's in the render range
-            setVisibleRange((prev) => {
-              const newStart = Math.min(prev.start, Math.max(1, pageNum - 1));
-              const newEnd = Math.max(prev.end, Math.min(numPages, pageNum + 2));
-              if (newStart !== prev.start || newEnd !== prev.end) {
-                return { start: newStart, end: newEnd };
-              }
-              return prev;
-            });
-          }
-        });
-      },
-      {
-        root: scrollContainerRef.current,
-        rootMargin: '200px 0px', // Larger margin to preload more pages
-        threshold: 0.01,
-      }
-    );
+    const pid = paperIdRef.current;
+    if (pid) {
+      window.electronAPI.paperUpdate(ws, pid, {
+        lastReadPosition: { pageNumber, scrollTop },
+        lastReadAt: Date.now(),
+      }).catch(() => {});
+    } else {
+      window.electronAPI.paperGetAll(ws).then((papers: any[]) => {
+        const paper = papers.find((p: any) => p.filePath === file.path);
+        if (paper) {
+          paperIdRef.current = paper.id;
+          window.electronAPI.paperUpdate(ws, paper.id, {
+            lastReadPosition: { pageNumber, scrollTop },
+            lastReadAt: Date.now(),
+          }).catch(() => {});
+        }
+      }).catch(() => {});
+    }
+  }, [getPageHeight]);
 
-    // Observe all currently rendered page containers
-    pageRefs.current.forEach((el) => {
-      if (el) observerRef.current?.observe(el);
-    });
-
-    return () => {
-      observerRef.current?.disconnect();
-    };
-  }, [numPages, visibleRange.start, visibleRange.end]);
-
-  // Update visible range when scrolling - always extend range to include current viewport
-  const pendingJumpPageRef = useRef<number | null>(null);
+  const debounceSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rafScrollRef = useRef<number | null>(null);
 
   const handleScroll = useCallback(() => {
-    if (!scrollContainerRef.current || numPages === 0) return;
+    if (suppressScrollRef.current || rafScrollRef.current) return;
 
-    const container = scrollContainerRef.current;
-    const scrollTop = container.scrollTop;
+    rafScrollRef.current = requestAnimationFrame(() => {
+      rafScrollRef.current = null;
+      const container = scrollContainerRef.current;
+      const np = numPagesRef.current;
+      if (!container || np === 0) return;
 
-    // Estimate current page based on scroll position
-    // Assuming average page height of ~800px at scale 1.0
-    const avgPageHeight = 800 * scale;
-    const currentPage = Math.max(1, Math.min(numPages, Math.floor(scrollTop / avgPageHeight) + 1));
+      const cp = getCurrentPage();
+      const newStart = Math.max(1, cp - BUFFER_PAGES);
+      const newEnd = Math.min(np, cp + BUFFER_PAGES + 1);
 
-    // Always update visible range to include current page and buffer
-    // This ensures smooth scrolling by pre-loading pages in the scroll direction
-    const newStart = Math.max(1, currentPage - 1);
-    const newEnd = Math.min(numPages, currentPage + 3);
+      setVisibleRange((prev) => {
+        if (newStart === prev.start && newEnd === prev.end) {
+          return prev;
+        }
+        return { start: newStart, end: newEnd };
+      });
+      setCurrentPage(cp);
 
-    setVisibleRange((prev) => {
-      // Extend range if needed to include the current viewport
-      const start = Math.min(prev.start, newStart);
-      const end = Math.max(prev.end, newEnd);
-      // Only update if range actually changed
-      if (start !== prev.start || end !== prev.end) {
-        return { start, end };
+      if (debounceSaveRef.current) {
+        clearTimeout(debounceSaveRef.current);
       }
-      return prev;
+      debounceSaveRef.current = setTimeout(() => {
+        saveReadPosition();
+      }, 1000);
     });
-  }, [numPages, scale]);
+  }, [getCurrentPage, saveReadPosition]);
 
-  const zoomIn = () => {
+  const zoomIn = useCallback(() => {
     setScale((prev) => Math.min(prev + 0.2, 3));
-  };
+  }, []);
 
-  const zoomOut = () => {
+  const zoomOut = useCallback(() => {
     setScale((prev) => Math.max(prev - 0.2, 0.5));
-  };
+  }, []);
 
-  const rotate = () => {
+  const rotate = useCallback(() => {
     setRotation((prev) => (prev + 90) % 360);
-  };
+  }, []);
 
-  // Generate array of page numbers - only render visible pages
   const visiblePageNumbers = useMemo(() => {
     if (numPages === 0) return [];
-    const pages = [];
+    const pages: number[] = [];
     for (let i = visibleRange.start; i <= visibleRange.end; i++) {
       pages.push(i);
     }
     return pages;
   }, [numPages, visibleRange]);
 
-  // Handle text selection actions
-  const handleTranslate = async (text: string) => {
-    if (!workspacePath) return;
+  // Pre-group annotations by page
+  const annotationsByPage = useMemo(() => {
+    const map = new Map<number, Annotation[]>();
+    if (!activeFile) return map;
+    annotations.forEach((a) => {
+      if (a.paperId !== activeFile.path) return;
+      const list = map.get(a.pageNumber);
+      if (list) {
+        list.push(a);
+      } else {
+        map.set(a.pageNumber, [a]);
+      }
+    });
+    return map;
+  }, [annotations, activeFile?.path]);
+
+  // Text selection handlers
+  const handleTranslate = useCallback(async (text: string) => {
+    const ws = workspacePathRef.current;
+    const file = activeFileRef.current;
+    if (!ws) return;
     const prompt = `请将以下学术文献内容翻译成中文，保持学术性和准确性：\n\n${text}`;
     if (!activeConversationId) {
-      await createConversation(workspacePath, {
+      await createConversation(ws, {
         topic: `翻译: ${text.slice(0, 20)}...`,
-        paperTitle: activeFile?.name,
+        paperTitle: file?.name,
       });
     }
-    await sendMessage(workspacePath, prompt);
-  };
+    await sendMessage(ws, prompt);
+  }, [activeConversationId, createConversation, sendMessage]);
 
-  const handleExplain = async (text: string) => {
-    if (!workspacePath) return;
+  const handleExplain = useCallback(async (text: string) => {
+    const ws = workspacePathRef.current;
+    const file = activeFileRef.current;
+    if (!ws) return;
     const prompt = `请解释以下学术文献内容的含义，用通俗易懂的语言说明：\n\n${text}`;
     if (!activeConversationId) {
-      await createConversation(workspacePath, {
+      await createConversation(ws, {
         topic: `解释: ${text.slice(0, 20)}...`,
-        paperTitle: activeFile?.name,
+        paperTitle: file?.name,
       });
     }
-    await sendMessage(workspacePath, prompt);
-  };
+    await sendMessage(ws, prompt);
+  }, [activeConversationId, createConversation, sendMessage]);
 
-  const handleAsk = async (text: string, prefillText?: string) => {
-    if (!workspacePath) return;
-    // Create conversation if none exists
+  const handleAsk = useCallback(async (text: string, prefillText?: string) => {
+    const ws = workspacePathRef.current;
+    const file = activeFileRef.current;
+    if (!ws) return;
     if (!activeConversationId) {
-      await createConversation(workspacePath, {
+      await createConversation(ws, {
         topic: `问答: ${text.slice(0, 20)}...`,
-        paperTitle: activeFile?.name,
+        paperTitle: file?.name,
       });
     }
-    // Set prefill text to populate the input box instead of sending immediately
     if (prefillText) {
       setPrefillText(prefillText);
     }
-  };
+  }, [activeConversationId, createConversation, setPrefillText]);
 
   // Annotation helpers
-  const findPageElementFromSelection = () => {
+  const findPageElementFromSelection = useCallback(() => {
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0) return null;
     let el = selection.getRangeAt(0).commonAncestorContainer as HTMLElement;
     if (el.nodeType === Node.TEXT_NODE) el = el.parentElement!;
     return el.closest('[data-page-num]') as HTMLDivElement | null;
-  };
+  }, []);
 
-  // Merge rects on the same text line to avoid duplicated underlines/overlays
-  const mergeAnnotationRects = (
+  const mergeAnnotationRects = useCallback((
     rects: Array<{ left: number; top: number; width: number; height: number }>
   ) => {
     if (rects.length === 0) return [];
@@ -359,9 +581,9 @@ const PDFViewer: React.FC = () => {
       }
     }
     return merged;
-  };
+  }, []);
 
-  const handleHighlight = (text: string, rects: DOMRectList) => {
+  const handleHighlight = useCallback((text: string, rects: DOMRectList) => {
     const pageEl = findPageElementFromSelection();
     if (!pageEl) return;
     const pageRect = pageEl.getBoundingClientRect();
@@ -378,9 +600,9 @@ const PDFViewer: React.FC = () => {
       pageNumber,
       defaultType: 'highlight',
     });
-  };
+  }, [findPageElementFromSelection, mergeAnnotationRects]);
 
-  const handleUnderline = (text: string, rects: DOMRectList) => {
+  const handleUnderline = useCallback((text: string, rects: DOMRectList) => {
     const pageEl = findPageElementFromSelection();
     if (!pageEl) return;
     const pageRect = pageEl.getBoundingClientRect();
@@ -397,13 +619,14 @@ const PDFViewer: React.FC = () => {
       pageNumber,
       defaultType: 'underline',
     });
-  };
+  }, [findPageElementFromSelection, mergeAnnotationRects]);
 
-  const saveAnnotation = async (type: AnnotationType, color: string, title: string, comment: string) => {
-    if (!creatingAnnotation || !activeFile) return;
+  const saveAnnotation = useCallback(async (type: AnnotationType, color: string, title: string, comment: string) => {
+    if (!creatingAnnotation || !activeFileRef.current) return;
+    const file = activeFileRef.current;
 
-    await createAnnotation(workspacePath, {
-      paperId: activeFile.path,
+    await createAnnotation(workspacePathRef.current, {
+      paperId: file.path,
       pageNumber: creatingAnnotation.pageNumber,
       type,
       color,
@@ -411,48 +634,37 @@ const PDFViewer: React.FC = () => {
       comment: comment || undefined,
       selectedText: creatingAnnotation.text,
       rects: creatingAnnotation.rects,
-      createdScale: scale,
+      createdScale: scaleRef.current,
     });
 
     setCreatingAnnotation(null);
-  };
+  }, [creatingAnnotation, createAnnotation]);
 
-  const jumpToAnnotation = (annotation: { pageNumber: number }) => {
-    console.log('[PDFViewer] jumpToAnnotation called for page:', annotation.pageNumber);
-    pendingJumpPageRef.current = annotation.pageNumber;
-    // Ensure the page is in visible range first
-    setVisibleRange((prev) => {
-      const next = {
-        start: Math.min(prev.start, annotation.pageNumber),
-        end: Math.max(prev.end, annotation.pageNumber),
-      };
-      console.log('[PDFViewer] Extending visibleRange from', prev, 'to', next);
-      return next;
-    });
-  };
+  const jumpToAnnotation = useCallback((target: { pageNumber: number }) => {
+    jumpToPage(target.pageNumber);
+  }, [jumpToPage]);
 
-  const handleAnnotationClick = (
+  const handleAnnotationClick = useCallback((
     anno: Annotation,
-    rect: { left: number; top: number; width: number; height: number },
-    pageNum: number
+    rect: { left: number; top: number; width: number; height: number }
   ) => {
-    setEditingAnnotation({ annotation: anno, pageNumber: pageNum, rect });
-  };
+    setEditingAnnotation({ annotation: anno, pageNumber: anno.pageNumber, rect });
+  }, []);
 
-  const handleUpdateAnnotation = async (id: string, title: string, comment: string) => {
-    if (!workspacePath) return;
-    await updateAnnotation(workspacePath, id, {
+  const handleUpdateAnnotation = useCallback(async (id: string, title: string, comment: string) => {
+    await updateAnnotation(workspacePathRef.current, id, {
       title: title.trim() || undefined,
       comment: comment.trim() || undefined,
     });
     setEditingAnnotation(null);
-  };
+  }, [updateAnnotation]);
 
-  const handleDeleteAnnotation = async (id: string) => {
-    if (!workspacePath) return;
-    await deleteAnnotation(workspacePath, id);
+  const handleDeleteAnnotation = useCallback(async (id: string) => {
+    await deleteAnnotation(workspacePathRef.current, id);
     setEditingAnnotation(null);
-  };
+  }, [deleteAnnotation]);
+
+  const handleCloseEdit = useCallback(() => setEditingAnnotation(null), []);
 
   // Close editor when clicking outside
   useEffect(() => {
@@ -474,6 +686,13 @@ const PDFViewer: React.FC = () => {
       .sort((a, b) => a.pageNumber - b.pageNumber || a.createdAt - b.createdAt);
   }, [annotations, activeFile]);
 
+  const toggleOutlinePanel = useCallback(() => setShowOutlinePanel((v) => !v), []);
+  const toggleAnnotationPanel = useCallback(() => setShowAnnotationPanel((v) => !v), []);
+
+  const handleOutlineItemClick = useCallback((pageNumber: number) => {
+    jumpToPage(pageNumber);
+  }, [jumpToPage]);
+
   if (!activeFile) {
     return (
       <div className="flex-1 flex items-center justify-center bg-gray-100 dark:bg-gray-800">
@@ -494,14 +713,27 @@ const PDFViewer: React.FC = () => {
             {activeFile.name}
           </span>
           <span className="text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">
-            {numPages > 0 && `${numPages} 页`}
+            {numPages > 0 && `第 ${currentPage} / ${numPages} 页`}
           </span>
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Outline toggle */}
+          <button
+            onClick={toggleOutlinePanel}
+            className={`p-1.5 rounded transition-colors ${
+              showOutlinePanel
+                ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
+                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+            }`}
+            title="目录"
+          >
+            <List className="w-5 h-5" />
+          </button>
+
           {/* Annotation toggle */}
           <button
-            onClick={() => setShowAnnotationPanel((v) => !v)}
+            onClick={toggleAnnotationPanel}
             className={`p-1.5 rounded transition-colors ${
               showAnnotationPanel
                 ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
@@ -548,6 +780,22 @@ const PDFViewer: React.FC = () => {
 
       {/* PDF Content - Virtual Scrolling */}
       <div className="flex-1 flex overflow-hidden relative">
+        {/* Outline Panel */}
+        {showOutlinePanel && (
+          <div className="w-56 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex flex-col flex-shrink-0">
+            <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <span className="text-sm font-medium text-gray-800 dark:text-gray-200">目录</span>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <PDFOutline
+                outline={outline}
+                pdf={pdfRef.current || false}
+                onItemClick={handleOutlineItemClick}
+              />
+            </div>
+          </div>
+        )}
+
         <div
           ref={scrollContainerRef}
           onScroll={handleScroll}
@@ -565,74 +813,31 @@ const PDFViewer: React.FC = () => {
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
             </div>
           ) : (
-            <div className="py-8 flex flex-col items-center gap-4">
+            <div className="py-8 flex flex-col items-center" style={{ minHeight: totalHeight }}>
+              <div style={{ height: getPageOffset(visibleRange.start) }} />
               <Document
                 file={fileProp}
-                onLoadSuccess={onDocumentLoadSuccess}
+                onLoadSuccess={(pdf: any) => onDocumentLoadSuccess(pdf)}
                 onLoadError={onDocumentLoadError}
                 options={documentOptions}
                 loading={null}
               >
                 {visiblePageNumbers.map((pageNum) => (
-                  <div
+                  <PDFPageItem
                     key={`page-${pageNum}`}
-                    ref={(el) => {
-                      if (el) {
-                        // Only observe if not already observed
-                        if (!pageRefs.current.has(pageNum)) {
-                          pageRefs.current.set(pageNum, el);
-                          observerRef.current?.observe(el);
-                        }
-                        // Handle pending jump from sidebar
-                        if (pendingJumpPageRef.current === pageNum) {
-                          console.log('[PDFViewer] Page ref matched pending jump, scrolling to page:', pageNum);
-                          pendingJumpPageRef.current = null;
-                          setTimeout(() => {
-                            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                          }, 50);
-                        }
-                      }
-                    }}
-                    data-page-num={pageNum}
-                    className="shadow-lg mb-4 last:mb-0 bg-white dark:bg-gray-900 relative"
-                  >
-                    <Page
-                      pageNumber={pageNum}
-                      scale={scale}
-                      rotate={rotation}
-                      renderTextLayer={true}
-                      renderAnnotationLayer={true}
-                      loading={
-                        <div className="w-[600px] h-[800px] flex items-center justify-center bg-gray-200 dark:bg-gray-700">
-                          <div className="animate-pulse text-gray-400">Loading page {pageNum}...</div>
-                        </div>
-                      }
-                    />
-                    <PageAnnotations
-                      annotations={useAnnotationStore.getState().getAnnotationsByPage(activeFile.path, pageNum)}
-                      scale={scale}
-                      onAnnotationClick={(anno, rect) => {
-                        handleAnnotationClick(anno, rect, pageNum);
-                      }}
-                    />
-                    {editingAnnotation &&
-                      editingAnnotation.pageNumber === pageNum && (
-                        <AnnotationEditPopover
-                          annotation={editingAnnotation.annotation}
-                          rect={editingAnnotation.rect}
-                          onSave={handleUpdateAnnotation}
-                          onDelete={handleDeleteAnnotation}
-                          onClose={() => setEditingAnnotation(null)}
-                        />
-                      )}
-                  </div>
+                    pageNum={pageNum}
+                    scale={scale}
+                    rotation={rotation}
+                    annotations={annotationsByPage.get(pageNum) || []}
+                    editingAnnotation={editingAnnotation}
+                    onAnnotationClick={handleAnnotationClick}
+                    onSave={handleUpdateAnnotation}
+                    onDelete={handleDeleteAnnotation}
+                    onCloseEdit={handleCloseEdit}
+                    onPageLoadSuccess={onPageLoadSuccess}
+                  />
                 ))}
               </Document>
-              {numPages > 0 && (
-                <div className="text-sm text-gray-500 mt-4">
-                  显示第 {visibleRange.start} - {visibleRange.end} 页，共 {numPages} 页
-                </div>
-              )}
             </div>
           )}
 

@@ -16,7 +16,8 @@ const MIN_CHAT_WIDTH = 200;
 const MAX_CHAT_WIDTH = 600;
 
 const Workspace: React.FC = () => {
-  const { currentWorkspace, closeWorkspace } = useWorkspaceStore();
+  const currentWorkspace = useWorkspaceStore((s) => s.currentWorkspace);
+  const closeWorkspace = useWorkspaceStore((s) => s.closeWorkspace);
 
   // View state: 'files' | 'categories' | 'filter' | 'annotations'
   const [sidebarView, setSidebarView] = useState<'files' | 'categories' | 'filter' | 'annotations'>('files');

@@ -160,8 +160,8 @@ export async function runAgentLoop(
         continue;
       }
 
-      options.onEvent({ type: 'agent_answer', content: parsed.answer, requestId: options.requestId });
-      options.onEvent({ type: 'chunk', content: parsed.answer, requestId: options.requestId });
+      options.onEvent({ type: 'agent_answer', content: '', requestId: options.requestId });
+      await simulateStream(parsed.answer, options);
       options.onEvent({ type: 'done', requestId: options.requestId });
       return;
     }
@@ -174,11 +174,55 @@ export async function runAgentLoop(
 
     // Fallback: if no recognized fields, treat as answer
     const fallbackAnswer = response.trim();
-    options.onEvent({ type: 'agent_answer', content: fallbackAnswer, requestId: options.requestId });
-    options.onEvent({ type: 'chunk', content: fallbackAnswer, requestId: options.requestId });
+    options.onEvent({ type: 'agent_answer', content: '', requestId: options.requestId });
+    await simulateStream(fallbackAnswer, options);
     options.onEvent({ type: 'done', requestId: options.requestId });
     return;
   }
 
   options.onEvent({ type: 'error', error: 'Agent reached maximum number of iterations without producing a final answer.', requestId: options.requestId });
+}
+
+/**
+ * Split text into small chunks for simulated streaming.
+ * CJK characters are emitted 1-2 at a time; others up to 15 chars.
+ */
+function splitTextIntoChunks(text: string): string[] {
+  const chunks: string[] = [];
+  let i = 0;
+  while (i < text.length) {
+    // CJK character
+    if (/[\u4e00-\u9fa5\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/.test(text[i])) {
+      const size = Math.min(2, text.length - i);
+      chunks.push(text.slice(i, i + size));
+      i += size;
+    } else {
+      let end = Math.min(i + 15, text.length);
+      // Try to break at a word boundary for better readability
+      if (end < text.length) {
+        while (end > i + 1 && !/[\s.,!?;:]/.test(text[end - 1])) {
+          end--;
+        }
+        if (end === i + 1) end = Math.min(i + 15, text.length);
+      }
+      chunks.push(text.slice(i, end));
+      i = end;
+    }
+  }
+  return chunks;
+}
+
+/**
+ * Simulate streaming by emitting the full text as a sequence of chunk events.
+ */
+async function simulateStream(
+  text: string,
+  options: { onEvent: AgentEventHandler; requestId: string },
+  baseDelayMs: number = 20
+): Promise<void> {
+  const chunks = splitTextIntoChunks(text);
+  for (const chunk of chunks) {
+    options.onEvent({ type: 'chunk', content: chunk, requestId: options.requestId });
+    await new Promise(r => setTimeout(r, baseDelayMs + Math.random() * 15));
+  }
 }

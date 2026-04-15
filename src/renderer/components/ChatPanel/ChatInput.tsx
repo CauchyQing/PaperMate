@@ -52,7 +52,11 @@ const ChatInput: React.FC<ChatInputProps> = ({
     }
   }, [input, isStreaming, onSend, pendingImage, pendingAttachment, onClearImage, onClearAttachment]);
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Ignore Enter when IME is composing (e.g. Chinese input method selecting characters)
+    if (e.nativeEvent.isComposing || (e as any).keyCode === 229) {
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();

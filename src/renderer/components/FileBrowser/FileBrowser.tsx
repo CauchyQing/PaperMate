@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Folder, FileText, ChevronRight, ChevronDown, RefreshCw } from 'lucide-react';
 import { useFileStore } from '../../stores/file';
 import { useWorkspaceStore } from '../../stores/workspace';
@@ -15,8 +15,9 @@ interface FileTreeItemProps {
 
 const FileTreeItem: React.FC<FileTreeItemProps> = ({ node, level, onEditPaper }) => {
   const { expandNode, collapseNode, openFile } = useFileStore();
-  const { currentWorkspace } = useWorkspaceStore();
-  const { papers, loadPapers } = useCategoryStore();
+  const currentWorkspace = useWorkspaceStore((s) => s.currentWorkspace);
+  const papers = useCategoryStore((s) => s.papers);
+  const loadPapers = useCategoryStore((s) => s.loadPapers);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
   const isPDF = node.type === 'file' && node.name.toLowerCase().endsWith('.pdf');
@@ -31,7 +32,6 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({ node, level, onEditPaper })
         await expandNode(node, currentWorkspace.path);
       }
     } else if (isPDF) {
-      // 打开PDF文件
       const pdfFile = {
         id: node.path,
         name: node.name,
@@ -53,15 +53,9 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({ node, level, onEditPaper })
   const handleEditCategory = async () => {
     setContextMenu(null);
 
-    // 使用文件名匹配，更可靠
     const fileName = node.name;
-    console.log('Looking for paper with filename:', fileName);
-    console.log('Available papers:', papers.map((p) => ({ filePath: p.filePath, fileName: p.fileName })));
-
-    // 先通过文件名匹配
     let paper = papers.find((p) => p.fileName === fileName);
 
-    // 如果找不到，尝试通过 filePath 包含匹配
     if (!paper) {
       paper = papers.find(
         (p) =>
@@ -73,17 +67,11 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({ node, level, onEditPaper })
     }
 
     if (paper) {
-      console.log('Found paper:', paper);
       onEditPaper(paper);
     } else if (currentWorkspace) {
-      // 如果还是找不到，尝试重新加载 papers
-      console.log('Paper not found, reloading papers...');
       await loadPapers(currentWorkspace.path);
 
       const refreshedPapers = useCategoryStore.getState().papers;
-      console.log('Refreshed papers:', refreshedPapers.map((p) => ({ filePath: p.filePath, fileName: p.fileName })));
-
-      // 重新通过文件名查找
       const refreshedPaper = refreshedPapers.find((p) => p.fileName === fileName);
 
       if (refreshedPaper) {
@@ -157,9 +145,13 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({ node, level, onEditPaper })
 };
 
 const FileBrowser: React.FC = () => {
-  const { currentWorkspace } = useWorkspaceStore();
-  const { rootNodes, isLoading, loadFiles, refreshFiles } = useFileStore();
-  const { papers, importPaper, loadPapers } = useCategoryStore();
+  const currentWorkspace = useWorkspaceStore((s) => s.currentWorkspace);
+  const rootNodes = useFileStore((s) => s.rootNodes);
+  const isLoading = useFileStore((s) => s.isLoading);
+  const loadFiles = useFileStore((s) => s.loadFiles);
+  const refreshFiles = useFileStore((s) => s.refreshFiles);
+  const importPaper = useCategoryStore((s) => s.importPaper);
+  const loadPapers = useCategoryStore((s) => s.loadPapers);
   const [editingPaper, setEditingPaper] = useState<Paper | null>(null);
   const [isImporting, setIsImporting] = useState(false);
 
@@ -168,39 +160,33 @@ const FileBrowser: React.FC = () => {
     if (currentWorkspace) {
       loadPapers(currentWorkspace.path);
     }
-  }, [currentWorkspace, loadPapers]);
+  }, [currentWorkspace?.path, loadPapers]);
 
   // 加载文件并自动导入所有PDF（递归扫描子文件夹）
-  // 使用 ref 来跟踪是否已初始化，避免重复运行
   const hasInitialized = useRef(false);
   useEffect(() => {
     const initFiles = async () => {
       if (!currentWorkspace) return;
-      if (hasInitialized.current) return; // 防止重复运行
+      if (hasInitialized.current) return;
 
       setIsImporting(true);
       hasInitialized.current = true;
       try {
-        // 先加载根目录文件显示UI
         await loadFiles(currentWorkspace.path);
 
-        // 递归扫描所有PDF文件（包括子文件夹）
         const allPdfFiles = await window.electronAPI.getAllPDFFiles(
           currentWorkspace.path,
           currentWorkspace.path
         );
 
-        // 获取已存在的论文路径（使用 store 获取最新状态，避免依赖 papers）
         const currentPapers = useCategoryStore.getState().papers;
         const existingPaths = new Set(currentPapers.map((p) => p.filePath));
         const newPdfs = allPdfFiles.filter((pdf) => !existingPaths.has(pdf.path));
 
-        // 导入新PDF
         if (newPdfs.length > 0) {
           for (const pdf of newPdfs) {
             await importPaper(currentWorkspace.path, pdf.path, pdf.relativePath);
           }
-          // 重新加载论文列表
           await loadPapers(currentWorkspace.path);
         }
       } catch (error) {
@@ -211,24 +197,20 @@ const FileBrowser: React.FC = () => {
     };
 
     initFiles();
-    // 只在组件挂载和工作区变化时运行，不依赖 papers 避免循环
   }, [currentWorkspace?.path]);
 
-  const handleRefresh = async () => {
+  const handleRefresh = useCallback(async () => {
     if (!currentWorkspace) return;
 
     setIsImporting(true);
     try {
-      // 刷新文件列表
       await refreshFiles(currentWorkspace.path);
 
-      // 递归扫描所有PDF
       const allPdfFiles = await window.electronAPI.getAllPDFFiles(
         currentWorkspace.path,
         currentWorkspace.path
       );
 
-      // 导入新PDF（使用 store 获取最新状态）
       const currentPapers = useCategoryStore.getState().papers;
       const existingPaths = new Set(currentPapers.map((p) => p.filePath));
       const newPdfs = allPdfFiles.filter((pdf) => !existingPaths.has(pdf.path));
@@ -240,10 +222,12 @@ const FileBrowser: React.FC = () => {
       if (newPdfs.length > 0) {
         await loadPapers(currentWorkspace.path);
       }
+    } catch (error) {
+      console.error('[FileBrowser] Error refreshing files:', error);
     } finally {
       setIsImporting(false);
     }
-  };
+  }, [currentWorkspace?.path, refreshFiles, importPaper, loadPapers]);
 
   return (
     <div className="h-full flex flex-col bg-gray-50 dark:bg-gray-800">
@@ -254,10 +238,13 @@ const FileBrowser: React.FC = () => {
         </h2>
         <button
           onClick={handleRefresh}
-          className="p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 rounded"
+          disabled={isImporting}
+          className={`p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 rounded ${
+            isImporting ? 'opacity-50 cursor-not-allowed' : ''
+          }`}
           title="刷新"
         >
-          <RefreshCw className="w-4 h-4" />
+          <RefreshCw className={`w-4 h-4 ${isImporting ? 'animate-spin' : ''}`} />
         </button>
       </div>
 

@@ -53,16 +53,20 @@ async function installBundledPython(): Promise<void> {
   const baseDir = getPythonBaseDir();
   const pythonPath = getBundledPythonPath();
   if (fs.existsSync(pythonPath)) {
+    console.log('[PythonManager] Python already installed at:', pythonPath);
     return;
   }
 
   const resourceDir = getBundledPythonResourceDir();
+  console.log('[PythonManager] Looking for Python resources at:', resourceDir);
+  
   if (!fs.existsSync(resourceDir)) {
     throw new Error(`Bundled Python resource directory not found: ${resourceDir}`);
   }
 
   console.log('[PythonManager] Copying bundled Python from', resourceDir, 'to', baseDir);
   copyDirSync(resourceDir, baseDir);
+  console.log('[PythonManager] Python copied successfully');
 
   // On Windows, install dependencies from offline wheels
   if (process.platform === 'win32') {
@@ -70,13 +74,22 @@ async function installBundledPython(): Promise<void> {
     if (fs.existsSync(wheelsDir)) {
       console.log('[PythonManager] Installing Windows Python dependencies from', wheelsDir);
       try {
-        await execPromise(
-          `"${pythonPath}" -m pip install --no-index --find-links "${wheelsDir}" pymupdf pdfplumber pypdf`,
-          { timeout: 120000 }
-        );
+        // First, try to install all wheels directly
+        const wheelFiles = fs.readdirSync(wheelsDir).filter(f => f.endsWith('.whl'));
+        const wheelPaths = wheelFiles.map(f => path.join(wheelsDir, f));
+        
+        if (wheelPaths.length > 0) {
+          console.log('[PythonManager] Installing wheels:', wheelFiles.join(', '));
+          await execPromise(
+            `"${pythonPath}" -m pip install --no-index ${wheelPaths.map(w => `"${w}"`).join(' ')}`,
+            { timeout: 120000 }
+          );
+        }
+        
         console.log('[PythonManager] Windows dependencies installed.');
       } catch (err: any) {
         console.error('[PythonManager] Failed to install Windows dependencies:', err);
+        console.error('[PythonManager] Error details:', err.stderr || err.message);
         // Don't throw here; some packages may be optional
       }
     }

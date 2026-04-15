@@ -55,13 +55,23 @@ if __name__ == "__main__":
 
 async function extractWithBundledPython(filePath: string, maxPages: number): Promise<string | null> {
   const pythonPath = await ensureBundledPythonPath();
+  console.log('[pdf_extract] Using Python at:', pythonPath);
+  console.log('[pdf_extract] Extracting PDF:', filePath);
+  
   const tmpFile = path.join(os.tmpdir(), `papermate_pdf_extract_${Date.now()}.py`);
   try {
     fs.writeFileSync(tmpFile, PYTHON_SCRIPT);
-    const { stdout } = await execPromise(`"${pythonPath}" "${tmpFile}" "${filePath}" ${maxPages}`, { timeout: 15000 });
+    const { stdout, stderr } = await execPromise(`"${pythonPath}" "${tmpFile}" "${filePath}" ${maxPages}`, { timeout: 15000 });
+    if (stderr) {
+      console.error('[pdf_extract] Python stderr:', stderr);
+    }
+    console.log('[pdf_extract] Extraction successful, output length:', stdout?.length || 0);
     return stdout.trim() || null;
   } catch (err: any) {
     console.error('[pdf_extract] Bundled Python extraction failed:', err.message || err);
+    if (err.stderr) {
+      console.error('[pdf_extract] stderr:', err.stderr);
+    }
     return null;
   } finally {
     try { fs.unlinkSync(tmpFile); } catch {}

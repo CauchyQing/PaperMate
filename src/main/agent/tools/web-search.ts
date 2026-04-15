@@ -50,9 +50,38 @@ async function searchWithCdp(query: string, maxResults: number): Promise<string>
 }
 
 async function searchWithPlaywright(query: string, maxResults: number): Promise<string> {
-  const browser = await chromium.launch({ headless: true });
+  let browser;
+  try {
+    // Try to launch with explicit executable path for packaged apps
+    const launchOptions: any = { headless: true };
+    
+    // In packaged app, Playwright may not find browsers automatically
+    // Try to use system Chrome/Chromium if available
+    if (process.platform === 'win32') {
+      const possiblePaths = [
+        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+        'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+        process.env.LOCALAPPDATA + '\\Google\\Chrome\\Application\\chrome.exe',
+        process.env.PROGRAMFILES + '\\Google\\Chrome\\Application\\chrome.exe',
+        process.env['PROGRAMFILES(X86)'] + '\\Google\\Chrome\\Application\\chrome.exe',
+      ];
+      for (const chromePath of possiblePaths) {
+        if (chromePath && require('fs').existsSync(chromePath)) {
+          launchOptions.executablePath = chromePath;
+          console.log('[web_search] Using Chrome at:', chromePath);
+          break;
+        }
+      }
+    }
+    
+    browser = await chromium.launch(launchOptions);
+  } catch (launchErr: any) {
+    console.error('[web_search] Failed to launch browser:', launchErr.message);
+    throw new Error('无法启动浏览器。请确保系统已安装 Chrome 或 Chromium。');
+  }
+  
   const context = await browser.newContext({
-    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
   });
   const page = await context.newPage();
   try {
