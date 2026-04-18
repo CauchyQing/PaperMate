@@ -7,6 +7,7 @@ import ChatInput from './ChatInput';
 import { MessageSquarePlus, Settings, ArrowLeft, Camera } from 'lucide-react';
 import AISettings from '../AISettings/AISettings';
 import ScreenshotCapture from '../ScreenshotCapture/ScreenshotCapture';
+import type { Message } from '../../../shared/types';
 
 const ChatPanel: React.FC = () => {
   const { currentWorkspace } = useWorkspaceStore();

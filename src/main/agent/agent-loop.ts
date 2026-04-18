@@ -28,7 +28,10 @@ export async function runAgentLoop(
 
   // Select relevant skills based on last user message
   const lastUserMessage = [...userMessages].reverse().find(m => m.role === 'user');
-  const userInput = lastUserMessage?.content || '';
+  const rawInput = lastUserMessage?.content || '';
+  const userInput = typeof rawInput === 'string' 
+    ? rawInput 
+    : (Array.isArray(rawInput) ? rawInput.map(p => p.text || '').join('\n') : '');
   const selectedSkills = selectSkills(userInput, skills, options.attachments);
   console.log('[Agent] Selected skills:', selectedSkills.map(s => s.name));
 

@@ -1,5 +1,7 @@
 // Agent / ReAct / Tool types
 
+import type { ContentPart } from './ai';
+
 export interface ToolDefinition {
   name: string;
   description: string;
@@ -24,7 +26,7 @@ export interface ToolResult {
 
 export interface AgentMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string;
+  content: string | ContentPart[];
   tool_calls?: ToolCall[];
   tool_call_id?: string;
 }

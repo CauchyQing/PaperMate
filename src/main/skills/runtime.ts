@@ -84,7 +84,9 @@ export function buildAgentSystemPrompt(skills: LoadedSkill[], basePrompt?: strin
 - 使用清晰、准确的语言
 - 对专业术语进行必要的解释
 - 使用 Markdown 格式（包括公式块 $...$ 和 $$...$$）
+- 对回答中的关键词、核心概念和重要术语使用 Markdown 加粗（如 **关键词**）
 - 如有需要，提供具体的例子帮助理解
+- 如果用户要求翻译，只翻译文本，不进行其他解释
 - 如果不确定，诚实说明而非猜测`;
 
   const skillSections = skills.map(skill => {
