@@ -1,6 +1,5 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { resolvePythonCommand } from '../../utils/python';
 import { registerTool } from '../tool-registry';
 
 const execPromise = promisify(exec);
@@ -34,7 +33,7 @@ function buildShellPrefix(): string {
 registerTool(
   {
     name: 'bash',
-    description: 'Execute a shell command and return stdout/stderr. In packaged Electron apps, "node" commands automatically fallback to the bundled Electron runtime, and "python3" commands fallback to the bundled Python runtime.',
+    description: 'Execute a shell command and return stdout/stderr. In packaged Electron apps, "node" commands automatically fallback to the bundled Electron runtime.',
     parameters: {
       type: 'object',
       properties: {
@@ -48,15 +47,14 @@ registerTool(
     const originalCommand = String(args.command);
     const timeout = Number(args.timeout || 30000);
 
-    // Resolve python3/node command fallbacks for packaged apps
-    let command = resolvePythonCommand(originalCommand);
-    command = resolveNodeCommand(command);
+    // Resolve node command fallbacks for packaged apps
+    let command = resolveNodeCommand(originalCommand);
 
     // Prefix PATH so common tools are discoverable
     const finalCommand = buildShellPrefix() + command;
 
     try {
-      const useElectronNode = command !== resolvePythonCommand(originalCommand) || command !== resolveNodeCommand(originalCommand);
+      const useElectronNode = command !== originalCommand;
       const execOptions: any = { timeout };
       if (useElectronNode) {
         execOptions.env = { ...process.env, ELECTRON_RUN_AS_NODE: '1' };

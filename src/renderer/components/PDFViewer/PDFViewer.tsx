@@ -563,18 +563,32 @@ const PDFViewer: React.FC = () => {
     rects: Array<{ left: number; top: number; width: number; height: number }>
   ) => {
     if (rects.length === 0) return [];
-    const sorted = [...rects]
-      .filter((r) => r.width > 0.5 && r.height > 0.5)
-      .sort((a, b) => a.top - b.top || a.left - b.left);
-    if (sorted.length === 0) return [];
+    
+    let validRects = rects.filter((r) => r.width > 0.5 && r.height > 0.5);
+    if (validRects.length === 0) return [];
+
+    // Calculate median height to filter out large container rects that span multiple lines
+    const heights = validRects.map(r => r.height).sort((a, b) => a - b);
+    const medianHeight = heights[Math.floor(heights.length / 2)];
+    validRects = validRects.filter(r => r.height <= medianHeight * 1.5);
+    if (validRects.length === 0) return [];
+
+    const sorted = validRects.sort((a, b) => a.top - b.top || a.left - b.left);
+    
     const merged = [{ ...sorted[0] }];
     for (let i = 1; i < sorted.length; i++) {
       const last = merged[merged.length - 1];
       const curr = sorted[i];
-      if (Math.abs(curr.top - last.top) < 4) {
+      
+      // Two rects are on the same line if their vertical centers are close
+      const lastCenter = last.top + last.height / 2;
+      const currCenter = curr.top + curr.height / 2;
+      
+      if (Math.abs(currCenter - lastCenter) < Math.min(last.height, curr.height) / 2) {
         const right = Math.max(last.left + last.width, curr.left + curr.width);
         last.left = Math.min(last.left, curr.left);
         last.width = right - last.left;
+        last.top = Math.min(last.top, curr.top);
         last.height = Math.max(last.height, curr.height);
       } else {
         merged.push({ ...curr });

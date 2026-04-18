@@ -1,4 +1,4 @@
-import { chatSync } from '../services/ai-service';
+import { chatStreamGenerator } from '../services/ai-service';
 import { executeTool, listToolsByNames, listTools } from './tool-registry';
 import { buildAgentSystemPrompt, getAllowedToolsFromSkills, loadAllSkills, selectSkills } from '../skills/runtime';
 import { setCachedSkills } from '../skills/registry';
@@ -64,71 +64,143 @@ export async function runAgentLoop(
       return;
     }
 
-    const response = await chatSync(messages, {
+    const generator = chatStreamGenerator(messages, {
       temperature: options.temperature ?? 0.3,
       providerId: options.providerId,
+      signal: options.signal,
     });
 
-    let parsed: any;
+    let fullResponse = '';
+    let parsed: any = {};
+    let isStreamingAnswer = false;
+    let answerBuffer = '';
+
     try {
-      // Try to extract JSON from markdown code blocks or plain text
-      const trimmed = response.trim();
-      const codeBlockMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
-      if (codeBlockMatch) {
-        parsed = JSON.parse(codeBlockMatch[1].trim());
-      } else {
-        // Find all top-level JSON object candidates and try parsing from the last one
-        // (the last one is usually the most complete when model emits multiple JSONs)
-        const candidates: string[] = [];
-        for (let i = 0; i < trimmed.length; i++) {
-          if (trimmed[i] === '{') {
-            let depth = 0;
-            for (let j = i; j < trimmed.length; j++) {
-              if (trimmed[j] === '{') depth++;
-              else if (trimmed[j] === '}') depth--;
-              if (depth === 0) {
-                candidates.push(trimmed.slice(i, j + 1));
-                i = j;
-                break;
+      for await (const chunk of generator) {
+        if (options.signal?.aborted) {
+          options.onEvent({ type: 'error', error: 'Agent execution was cancelled.', requestId: options.requestId });
+          return;
+        }
+
+        fullResponse += chunk;
+
+        if (!isStreamingAnswer) {
+          const answerMatch = fullResponse.match(/<answer>([\s\S]*)$/i);
+          if (answerMatch) {
+            isStreamingAnswer = true;
+            
+            // Extract thought if available before answer
+            const thoughtMatch = fullResponse.match(/<thought>([\s\S]*?)<\/thought>/i);
+            if (thoughtMatch) {
+              parsed.thought = thoughtMatch[1].trim();
+              options.onEvent({ type: 'agent_thought', thought: parsed.thought, requestId: options.requestId });
+            }
+
+            options.onEvent({ type: 'agent_answer', content: '', requestId: options.requestId });
+            
+            // Re-evaluate safe streaming with the new content
+            const rawContent = answerMatch[1];
+            let safeContent = rawContent;
+            
+            const closingTagIndex = rawContent.indexOf('</answer>');
+            if (closingTagIndex !== -1) {
+              safeContent = rawContent.substring(0, closingTagIndex);
+            } else {
+              // Strip trailing partial tags to prevent streaming them early
+              const suffixes = ['<', '</', '</a', '</an', '</ans', '</answ', '</answe', '</answer'];
+              for (const suffix of suffixes) {
+                if (rawContent.endsWith(suffix)) {
+                  safeContent = rawContent.substring(0, rawContent.length - suffix.length);
+                  break;
+                }
               }
+            }
+
+            if (safeContent) {
+              options.onEvent({ type: 'chunk', content: safeContent, requestId: options.requestId });
+              answerBuffer = safeContent;
+            }
+          }
+        } else {
+          // We are inside answer, stream safe portion of answer string
+          const answerMatch = fullResponse.match(/<answer>([\s\S]*)$/i);
+          if (answerMatch) {
+            const rawContent = answerMatch[1];
+            let safeContent = rawContent;
+            let foundClosingTag = false;
+            
+            const closingTagIndex = rawContent.indexOf('</answer>');
+            if (closingTagIndex !== -1) {
+              safeContent = rawContent.substring(0, closingTagIndex);
+              foundClosingTag = true;
+            } else {
+              const suffixes = ['<', '</', '</a', '</an', '</ans', '</answ', '</answe', '</answer'];
+              for (const suffix of suffixes) {
+                if (rawContent.endsWith(suffix)) {
+                  safeContent = rawContent.substring(0, rawContent.length - suffix.length);
+                  break;
+                }
+              }
+            }
+
+            if (safeContent.length > answerBuffer.length) {
+              const newContent = safeContent.substring(answerBuffer.length);
+              options.onEvent({ type: 'chunk', content: newContent, requestId: options.requestId });
+              answerBuffer = safeContent;
+            }
+
+            if (foundClosingTag) {
+              break;
             }
           }
         }
-        let found = false;
-        for (let k = candidates.length - 1; k >= 0; k--) {
-          try {
-            parsed = JSON.parse(candidates[k]);
-            found = true;
-            break;
-          } catch {
-            continue;
-          }
-        }
-        if (!found) {
-          parsed = { answer: response.trim() };
-        }
       }
-    } catch {
-      parsed = { answer: response.trim() };
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        options.onEvent({ type: 'error', error: 'Agent execution was cancelled.', requestId: options.requestId });
+        return;
+      }
+      options.onEvent({ type: 'error', error: err.message || '未知错误', requestId: options.requestId });
+      return;
     }
 
-    // Emit thought
-    if (parsed.thought) {
-      options.onEvent({ type: 'agent_thought', thought: parsed.thought, requestId: options.requestId });
-      messages.push({ role: 'assistant', content: parsed.thought });
+    if (!isStreamingAnswer) {
+      // Not an answer, must be a tool call (or incomplete)
+      const thoughtMatch = fullResponse.match(/<thought>([\s\S]*?)<\/thought>/i);
+      if (thoughtMatch) {
+        parsed.thought = thoughtMatch[1].trim();
+        options.onEvent({ type: 'agent_thought', thought: parsed.thought, requestId: options.requestId });
+      }
+
+      const toolCallMatch = fullResponse.match(/<tool_call>([\s\S]*?)<\/tool_call>/i);
+      if (toolCallMatch) {
+        try {
+          parsed.tool_call = JSON.parse(toolCallMatch[1].trim());
+        } catch (e) {
+          console.error('[Agent] Failed to parse tool_call JSON:', e);
+        }
+      }
+    }
+
+    // Push the full assistant output to context so the LLM remembers its own tool call or answer
+    const assistantMsg: AgentMessage = { role: 'assistant', content: fullResponse.trim() };
+    messages.push(assistantMsg);
+
+    if (isStreamingAnswer) {
+      options.onEvent({ type: 'done', requestId: options.requestId });
+      return;
     }
 
     // Execute tool
     if (parsed.tool_call) {
       const call = parsed.tool_call as ToolCall;
-      if (!call.id) call.id = `call_${Date.now()}`;
       options.onEvent({ type: 'agent_tool_call', toolCall: { id: call.id, name: call.name, arguments: JSON.stringify(call.arguments || {}) }, requestId: options.requestId });
 
       // Check if tool is allowed
       if (allowedToolNames.length > 0 && !allowedToolNames.includes(call.name)) {
         const err = `Tool "${call.name}" is not allowed by the active skills. Allowed tools: ${allowedToolNames.join(', ')}`;
         options.onEvent({ type: 'agent_tool_result', toolCallId: call.id, result: err, isError: true, requestId: options.requestId });
-        messages.push({ role: 'tool', content: err, tool_call_id: call.id });
+        messages.push({ role: 'user', content: `[Tool Result (${call.name})]:\n${err}` });
         continue;
       }
 
@@ -140,47 +212,30 @@ export async function runAgentLoop(
           isError: false,
         };
         options.onEvent({ type: 'agent_tool_result', toolCallId: call.id, result: cachedResult.content, isError: false, requestId: options.requestId });
-        messages.push({ role: 'tool', content: cachedResult.content, tool_call_id: call.id });
+        messages.push({ role: 'user', content: `[Tool Result (${call.name})]:\n${cachedResult.content}` });
         continue;
       }
 
       const result = await executeTool(call);
       options.onEvent({ type: 'agent_tool_result', toolCallId: call.id, result: result.content, isError: result.isError || false, requestId: options.requestId });
-      messages.push({ role: 'tool', content: result.content, tool_call_id: call.id });
+      messages.push({ role: 'user', content: `[Tool Result (${call.name})]:\n${result.content}` });
       continue;
     }
 
-    // Final answer
-    if (parsed.answer) {
-      // Heuristic: if answer looks like an intermediate step, treat as thought and continue
-      const intermediatePatterns = ['正在', '准备', '现在', '接下来', '先', '加载', '提取', '搜索中', '请稍候', '页面已', '已经打开', '正在查看'];
-      const looksIntermediate = intermediatePatterns.some(p => String(parsed.answer).includes(p)) && String(parsed.answer).length < 120;
-
-      if (looksIntermediate && i < maxIterations - 1) {
-        options.onEvent({ type: 'agent_thought', thought: parsed.answer, requestId: options.requestId });
-        messages.push({ role: 'assistant', content: parsed.answer });
-        messages.push({ role: 'system', content: '你还没有完成任务。刚才的输出只是一个中间状态，请继续调用工具获取最终结果，然后给出最终答案。' });
-        continue;
+    // If neither answer nor tool_call was found (e.g. LLM failed to follow format)
+    if (!isStreamingAnswer && !parsed.tool_call) {
+      const fallbackAnswer = fullResponse.trim();
+      if (fallbackAnswer) {
+        options.onEvent({ type: 'agent_answer', content: '', requestId: options.requestId });
+        // simulate stream for fallback
+        const chunks = splitTextIntoChunks(fallbackAnswer);
+        for (const c of chunks) {
+          options.onEvent({ type: 'chunk', content: c, requestId: options.requestId });
+        }
+        options.onEvent({ type: 'done', requestId: options.requestId });
+        return;
       }
-
-      options.onEvent({ type: 'agent_answer', content: '', requestId: options.requestId });
-      await simulateStream(parsed.answer, options);
-      options.onEvent({ type: 'done', requestId: options.requestId });
-      return;
     }
-
-    // If only thought was provided without tool_call or answer, nudge to continue
-    if (parsed.thought && i < maxIterations - 1) {
-      messages.push({ role: 'system', content: '请继续：如果你还需要调用工具，请输出 tool_call；如果你已经可以回答用户，请输出 answer。' });
-      continue;
-    }
-
-    // Fallback: if no recognized fields, treat as answer
-    const fallbackAnswer = response.trim();
-    options.onEvent({ type: 'agent_answer', content: '', requestId: options.requestId });
-    await simulateStream(fallbackAnswer, options);
-    options.onEvent({ type: 'done', requestId: options.requestId });
-    return;
   }
 
   options.onEvent({ type: 'error', error: 'Agent reached maximum number of iterations without producing a final answer.', requestId: options.requestId });
@@ -213,19 +268,4 @@ function splitTextIntoChunks(text: string): string[] {
     }
   }
   return chunks;
-}
-
-/**
- * Simulate streaming by emitting the full text as a sequence of chunk events.
- */
-async function simulateStream(
-  text: string,
-  options: { onEvent: AgentEventHandler; requestId: string },
-  baseDelayMs: number = 20
-): Promise<void> {
-  const chunks = splitTextIntoChunks(text);
-  for (const chunk of chunks) {
-    options.onEvent({ type: 'chunk', content: chunk, requestId: options.requestId });
-    await new Promise(r => setTimeout(r, baseDelayMs + Math.random() * 15));
-  }
 }

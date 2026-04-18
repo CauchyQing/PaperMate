@@ -55,6 +55,79 @@ export async function chatSync(
 }
 
 /**
+ * Streaming chat generator — yields chunks of text.
+ */
+export async function* chatStreamGenerator(
+  messages: ChatMessage[],
+  options?: ChatOptions & { providerId?: string; signal?: AbortSignal }
+): AsyncGenerator<string, void, unknown> {
+  const provider = getProvider(options?.providerId);
+  const model = options?.model || provider.defaultModel;
+
+  const res = await fetch(`${provider.baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${provider.apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: options?.temperature ?? 0.7,
+      max_tokens: options?.maxTokens ?? provider.maxTokens ?? 4096,
+      stream: true,
+    }),
+    signal: options?.signal,
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`AI 请求失败 (${res.status}): ${body.slice(0, 200)}`);
+  }
+
+  const reader = res.body?.getReader();
+  if (!reader) {
+    throw new Error('无法读取响应流');
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    const decoded = decoder.decode(value, { stream: true });
+    buffer += decoded;
+
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || !trimmed.startsWith('data: ')) continue;
+      const data = trimmed.slice(6);
+      if (data === '[DONE]') {
+        return;
+      }
+      try {
+        const parsed = JSON.parse(data);
+        const content = parsed.choices?.[0]?.delta?.content
+          || parsed.choices?.[0]?.message?.content
+          || parsed.content
+          || parsed.text
+          || parsed.response;
+        if (content) {
+          yield content;
+        }
+      } catch {
+        // Skip malformed JSON lines
+      }
+    }
+  }
+}
+
+/**
  * Streaming chat — pushes chunks to the renderer via IPC.
  * Returns the requestId so the caller can track/cancel.
  */
@@ -63,8 +136,6 @@ export async function chatStream(
   messages: ChatMessage[],
   options?: ChatOptions & { providerId?: string; requestId?: string }
 ): Promise<string> {
-  const provider = getProvider(options?.providerId);
-  const model = options?.model || provider.defaultModel;
   const requestId = options?.requestId || generateRequestId();
   const controller = new AbortController();
   activeRequests.set(requestId, controller);
@@ -72,106 +143,16 @@ export async function chatStream(
   // Fire-and-forget the streaming work
   (async () => {
     try {
-      const res = await fetch(`${provider.baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${provider.apiKey}`,
-        },
-        body: JSON.stringify({
-          model,
-          messages,
-          temperature: options?.temperature ?? 0.7,
-          max_tokens: options?.maxTokens ?? provider.maxTokens ?? 4096,
-          stream: true,
-        }),
-        signal: controller.signal,
-      });
-
-      if (!res.ok) {
-        const body = await res.text();
+      const generator = chatStreamGenerator(messages, { ...options, signal: controller.signal });
+      for await (const chunk of generator) {
         win.webContents.send('ai:stream-event', {
-          type: 'error',
-          error: `AI 请求失败 (${res.status}): ${body.slice(0, 200)}`,
+          type: 'chunk',
+          content: chunk,
           requestId,
         });
-        return;
       }
 
-      const reader = res.body?.getReader();
-      if (!reader) {
-        win.webContents.send('ai:stream-event', {
-          type: 'error',
-          error: '无法读取响应流',
-          requestId,
-        });
-        return;
-      }
-
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let chunkCount = 0;
-      const startTime = Date.now();
-
-      console.log('[AI Service] Starting to read stream for request:', requestId);
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-          console.log(`[AI Service] Stream complete. Total chunks: ${chunkCount}, time: ${Date.now() - startTime}ms`);
-          break;
-        }
-
-        const decoded = decoder.decode(value, { stream: true });
-        buffer += decoded;
-
-        // Log first chunk to confirm stream started
-        if (chunkCount === 0) {
-          console.log(`[AI Service] First chunk received after ${Date.now() - startTime}ms`);
-        }
-
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || !trimmed.startsWith('data: ')) continue;
-          const data = trimmed.slice(6);
-          if (data === '[DONE]') {
-            console.log(`[AI Service] Received [DONE] after ${Date.now() - startTime}ms`);
-            win.webContents.send('ai:stream-event', {
-              type: 'done',
-              requestId,
-            });
-            return;
-          }
-          try {
-            const parsed = JSON.parse(data);
-            // Try different response formats (OpenAI compatible + variants)
-            const content = parsed.choices?.[0]?.delta?.content
-              || parsed.choices?.[0]?.message?.content
-              || parsed.content
-              || parsed.text
-              || parsed.response;
-            if (content) {
-              chunkCount++;
-              // Log every 10 chunks
-              if (chunkCount % 10 === 0) {
-                console.log(`[AI Service] Sent chunk ${chunkCount}, time: ${Date.now() - startTime}ms`);
-              }
-              win.webContents.send('ai:stream-event', {
-                type: 'chunk',
-                content,
-                requestId,
-              });
-            }
-          } catch {
-            // Skip malformed JSON lines
-          }
-        }
-      }
-
-      // Stream ended without [DONE] — still signal completion
+      // Stream ended without error
       win.webContents.send('ai:stream-event', {
         type: 'done',
         requestId,

@@ -98,28 +98,31 @@ export function buildAgentSystemPrompt(skills: LoadedSkill[], basePrompt?: strin
 }
 
 function buildOutputFormatPrompt(): string {
-  const backticks = '```';
   return `--- 输出格式 ---
-请严格按以下 JSON 格式输出，不要包含任何额外的 Markdown 代码块标记（如 ${backticks}json）：
+请严格按以下 XML 标签格式输出，不要使用 JSON：
 
-当你需要调用工具时：
-{
-  "thought": "你的思考过程",
-  "tool_call": { "id": "call_1", "name": "tool_name", "arguments": { "key": "value" } }
-}
+当你需要调用工具时，必须输出 <thought> 和 <tool_call> 标签（<tool_call> 内容为 JSON）：
+<thought>
+你的思考过程
+</thought>
+<tool_call>
+{"id": "call_1", "name": "tool_name", "arguments": { "key": "value" }}
+</tool_call>
 
-当你不需要调用工具，直接回复用户时：
-{
-  "thought": "你的思考过程",
-  "answer": "你的最终回复"
-}
+当你不需要调用工具，直接回复用户时，必须输出 <thought> 和 <answer> 标签：
+<thought>
+你的思考过程
+</thought>
+<answer>
+你的最终回复
+</answer>
 
 [极其重要]
-1. 只要用户的请求还没有完全满足，你就必须继续调用工具（输出 tool_call），绝对不能提前输出 answer。
+1. 只要用户的请求还没有完全满足，你就必须继续调用工具（输出 <tool_call>），绝对不能提前输出 <answer>。
 2. 像"页面已加载"、"正在提取"、"准备搜索"、"现在查看"这类话只是中间过程，不是最终答案。说完这类话后，你必须立即调用对应的工具去真正完成操作。
-3. 只有当你确实获取了最终的具体结果（如具体的数据、标题、链接、结论等），并且确认可以直接回答用户时，才能输出 answer。
+3. 只有当你确实获取了最终的具体结果（如具体的数据、标题、链接、结论等），并且确认可以直接回答用户时，才能输出 <answer>。
 4. 不要编造没有获取到的信息。如果你还没有拿到结果，就继续调用工具。
-5. 每轮最多只能输出一次 tool_call。完成一个 tool_call 拿到结果后，再决定下一步，不要把多个步骤合并到一轮中。
+5. 每轮最多只能输出一次 <tool_call>。完成一个 tool_call 拿到结果后，再决定下一步，不要把多个步骤合并到一轮中。
 6. 直接、高效地完成任务。不要进行不必要的截图或冗余操作，能用 eval 提取信息就不要截图。`;
 }
 
