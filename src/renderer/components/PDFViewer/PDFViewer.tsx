@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
-import { ZoomIn, ZoomOut, RotateCw, FileText, Bookmark, List } from 'lucide-react';
+import { ZoomIn, ZoomOut, RotateCw, FileText, Bookmark, List, Search, ChevronUp, ChevronDown, X } from 'lucide-react';
 import { useFileStore } from '../../stores/file';
 import { useConversationStore } from '../../stores/conversation';
 import { useWorkspaceStore } from '../../stores/workspace';
@@ -37,6 +37,13 @@ const PAGE_MARGIN = 16; // 1rem
 const FALLBACK_PAGE_HEIGHT = 800;
 const BUFFER_PAGES = 2;
 
+
+interface SearchMatch {
+  pageNumber: number;
+  itemIndex: number;
+  matchIndexInItem: number;
+}
+
 interface PDFPageItemProps {
   pageNum: number;
   scale: number;
@@ -48,6 +55,7 @@ interface PDFPageItemProps {
   onDelete: (id: string) => void;
   onCloseEdit: () => void;
   onPageLoadSuccess?: (page: any) => void;
+  customTextRenderer?: (textItem: any) => string;
 }
 
 const PDFPageItem = React.memo<PDFPageItemProps>(({
@@ -61,6 +69,7 @@ const PDFPageItem = React.memo<PDFPageItemProps>(({
   onDelete,
   onCloseEdit,
   onPageLoadSuccess,
+  customTextRenderer,
 }) => {
   return (
     <div data-page-num={pageNum} style={{ marginBottom: PAGE_MARGIN }} className="shadow-lg bg-white dark:bg-gray-900 relative">
@@ -70,6 +79,7 @@ const PDFPageItem = React.memo<PDFPageItemProps>(({
         rotate={rotation}
         renderTextLayer={true}
         renderAnnotationLayer={true}
+        customTextRenderer={customTextRenderer}
         onLoadSuccess={onPageLoadSuccess}
         loading={
           <div style={{ width: 600, height: 800 }} className="flex items-center justify-center bg-gray-200 dark:bg-gray-700">
@@ -215,6 +225,117 @@ const PDFViewer: React.FC = () => {
       suppressScrollRef.current = false;
     }, 150);
   }, [getPageOffset]);
+
+  // Search state
+  const [searchInput, setSearchInput] = useState('');
+  const [searchText, setSearchText] = useState('');
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchResults, setSearchResults] = useState<SearchMatch[]>([]);
+  const [currentMatchIndex, setCurrentMatchIndex] = useState(-1);
+  const [isSearching, setIsSearching] = useState(false);
+
+  const performSearch = useCallback(async (text: string) => {
+    if (!text.trim() || !pdfRef.current) {
+      setSearchResults([]);
+      setCurrentMatchIndex(-1);
+      setSearchText('');
+      return;
+    }
+    setIsSearching(true);
+    setSearchText(text);
+    const pdf = pdfRef.current;
+    const numPages = pdf.numPages;
+    const results: SearchMatch[] = [];
+
+    try {
+      for (let i = 1; i <= numPages; i++) {
+        const page = await pdf.getPage(i);
+        const textContent = await page.getTextContent();
+        
+        textContent.items.forEach((item: any, itemIndex: number) => {
+          if (item.str) {
+            const regex = new RegExp(text, 'gi');
+            let matchIndexInItem = 0;
+            while (regex.exec(item.str) !== null) {
+              results.push({
+                pageNumber: i,
+                itemIndex,
+                matchIndexInItem
+              });
+              matchIndexInItem++;
+            }
+          }
+        });
+      }
+      setSearchResults(results);
+      if (results.length > 0) {
+        setCurrentMatchIndex(0);
+        jumpToPage(results[0].pageNumber);
+      } else {
+        setCurrentMatchIndex(-1);
+      }
+    } catch (err) {
+      console.error('Search error:', err);
+    } finally {
+      setIsSearching(false);
+    }
+  }, [jumpToPage]);
+
+  const handleNextMatch = useCallback(() => {
+    if (searchResults.length === 0) return;
+    const next = (currentMatchIndex + 1) % searchResults.length;
+    setCurrentMatchIndex(next);
+    jumpToPage(searchResults[next].pageNumber);
+  }, [currentMatchIndex, searchResults, jumpToPage]);
+
+  const handlePrevMatch = useCallback(() => {
+    if (searchResults.length === 0) return;
+    const prev = (currentMatchIndex - 1 + searchResults.length) % searchResults.length;
+    setCurrentMatchIndex(prev);
+    jumpToPage(searchResults[prev].pageNumber);
+  }, [currentMatchIndex, searchResults, jumpToPage]);
+
+  const escapeHtml = (unsafe: string) => {
+    return unsafe
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  };
+
+  const textRenderer = useCallback((textItem: { str: string, itemIndex: number, pageIndex: number }) => {
+    if (!searchText) return escapeHtml(textItem.str);
+    
+    const pageNumber = textItem.pageIndex + 1;
+    const matchesInThisItem = searchResults.filter(
+      r => r.pageNumber === pageNumber && r.itemIndex === textItem.itemIndex
+    );
+    
+    if (matchesInThisItem.length === 0) {
+      return escapeHtml(textItem.str);
+    }
+
+    const regex = new RegExp(`(${searchText})`, 'gi');
+    const parts = textItem.str.split(regex);
+    let matchCount = 0;
+    
+    return parts.map((part, i) => {
+      if (i % 2 === 1) {
+        const globalMatch = matchesInThisItem[matchCount];
+        const globalIndex = searchResults.indexOf(globalMatch);
+        const isActive = globalIndex === currentMatchIndex;
+        matchCount++;
+        
+        const bg = isActive ? '#ff9800' : '#ffeb3b';
+        const color = isActive ? 'white' : 'black';
+        return `<mark style="background-color: ${bg}; color: ${color}; border-radius: 2px; padding: 0 1px; box-shadow: 0 1px 2px rgba(0,0,0,0.2);">${escapeHtml(part)}</mark>`;
+      } else {
+        return escapeHtml(part);
+      }
+    }).join('');
+  }, [searchText, searchResults, currentMatchIndex]);
+
 
   // Expose jump target setter globally for AnnotationSidebar
   useEffect(() => {
@@ -468,6 +589,86 @@ const PDFViewer: React.FC = () => {
       }, 1000);
     });
   }, [getCurrentPage, saveReadPosition]);
+
+
+  // Trackpad pinch-to-zoom
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      // Mac trackpad pinch-to-zoom is represented as wheel event with ctrlKey=true
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        // e.deltaY is negative when zooming in (pinching out)
+        const delta = e.deltaY * -0.01;
+        
+        setScale((prev) => {
+          const next = prev + delta;
+          return Math.min(Math.max(next, 0.5), 3.0);
+        });
+      }
+    };
+
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    return () => {
+      container.removeEventListener('wheel', handleWheel);
+    };
+  }, []);
+
+  // Mouse Drag to Pan
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    let isDragging = false;
+    let startX = 0;
+    let startY = 0;
+    let scrollLeft = 0;
+    let scrollTop = 0;
+
+    const handleMouseDown = (e: MouseEvent) => {
+      // Middle click (button 1) or Left click + Alt/Space (button 0 + altKey) or empty space on container (not on text)
+      // By default we check if target is the container itself or a page background
+      if (e.button === 1 || (e.button === 0 && e.altKey)) {
+        e.preventDefault();
+        isDragging = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        scrollLeft = container.scrollLeft;
+        scrollTop = container.scrollTop;
+        container.style.cursor = 'grabbing';
+      }
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging) return;
+      e.preventDefault();
+      const x = e.clientX;
+      const y = e.clientY;
+      const walkX = (x - startX) * 1.5;
+      const walkY = (y - startY) * 1.5;
+      container.scrollLeft = scrollLeft - walkX;
+      container.scrollTop = scrollTop - walkY;
+    };
+
+    const handleMouseUp = () => {
+      isDragging = false;
+      container.style.cursor = '';
+    };
+
+    container.addEventListener('mousedown', handleMouseDown);
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      container.removeEventListener('mousedown', handleMouseDown);
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
 
   const zoomIn = useCallback(() => {
     setScale((prev) => Math.min(prev + 0.2, 3));
@@ -732,6 +933,30 @@ const PDFViewer: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
+
+          {/* Search toggle */}
+          <button
+            onClick={() => {
+              if (isSearchOpen) {
+                setIsSearchOpen(false);
+                setSearchInput('');
+                performSearch('');
+              } else {
+                setIsSearchOpen(true);
+              }
+            }}
+            className={`p-1.5 rounded transition-colors ${
+              isSearchOpen || searchText
+                ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
+                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+            }`}
+            title="搜索"
+          >
+            <Search className="w-5 h-5" />
+          </button>
+          
+          <div className="w-px h-6 bg-gray-300 dark:bg-gray-700 mx-2" />
+
           {/* Outline toggle */}
           <button
             onClick={toggleOutlinePanel}
@@ -792,6 +1017,66 @@ const PDFViewer: React.FC = () => {
         </div>
       </div>
 
+
+      {/* Secondary Search Toolbar */}
+      {isSearchOpen && (
+        <div className="flex items-center px-4 py-2 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 gap-3 text-sm transition-all">
+          <Search className="w-4 h-4 text-gray-500" />
+          <input
+            type="text"
+            placeholder="搜索词语..."
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                performSearch(searchInput);
+              }
+            }}
+            className="flex-1 bg-transparent border-none focus:ring-0 outline-none text-gray-800 dark:text-gray-200"
+            autoFocus
+          />
+          {isSearching && (
+            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary-600" />
+          )}
+          {!isSearching && searchResults.length > 0 && (
+            <span className="text-gray-500 dark:text-gray-400 whitespace-nowrap">
+              {currentMatchIndex + 1} / {searchResults.length}
+            </span>
+          )}
+          {!isSearching && searchResults.length === 0 && searchText && (
+            <span className="text-gray-500 dark:text-gray-400 whitespace-nowrap">
+              无匹配项
+            </span>
+          )}
+          <div className="flex items-center gap-1 border-l border-gray-300 dark:border-gray-700 pl-2">
+            <button
+              onClick={handlePrevMatch}
+              disabled={searchResults.length === 0}
+              className="p-1 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded disabled:opacity-50"
+            >
+              <ChevronUp className="w-4 h-4" />
+            </button>
+            <button
+              onClick={handleNextMatch}
+              disabled={searchResults.length === 0}
+              className="p-1 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded disabled:opacity-50"
+            >
+              <ChevronDown className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => {
+                setIsSearchOpen(false);
+                setSearchInput('');
+                performSearch('');
+              }}
+              className="p-1 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded ml-1"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* PDF Content - Virtual Scrolling */}
       <div className="flex-1 flex overflow-hidden relative">
         {/* Outline Panel */}
@@ -813,7 +1098,7 @@ const PDFViewer: React.FC = () => {
         <div
           ref={scrollContainerRef}
           onScroll={handleScroll}
-          className="flex-1 overflow-y-auto overflow-x-hidden scroll-smooth relative"
+          className="flex-1 overflow-auto scroll-smooth relative"
         >
           {error ? (
             <div className="flex items-center justify-center h-full">
@@ -827,7 +1112,10 @@ const PDFViewer: React.FC = () => {
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
             </div>
           ) : (
-            <div className="py-8 flex flex-col items-center" style={{ minHeight: totalHeight }}>
+            <div
+              className="py-8 flex flex-col items-center"
+              style={{ minHeight: totalHeight }}
+            >
               <div style={{ height: getPageOffset(visibleRange.start) }} />
               <Document
                 file={fileProp}
@@ -849,6 +1137,7 @@ const PDFViewer: React.FC = () => {
                     onDelete={handleDeleteAnnotation}
                     onCloseEdit={handleCloseEdit}
                     onPageLoadSuccess={onPageLoadSuccess}
+                    customTextRenderer={textRenderer}
                   />
                 ))}
               </Document>
