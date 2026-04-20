@@ -13,6 +13,7 @@ import {
 import { useCategoryStore } from '../../stores/category';
 import { useWorkspaceStore } from '../../stores/workspace';
 import { useFileStore } from '../../stores/file';
+import PaperEditor from '../PaperEditor/PaperEditor';
 import type {
   CategoryType,
   CategoryGroup,
@@ -43,6 +44,7 @@ const CategoryView: React.FC = () => {
   const setActiveCategory = useCategoryStore((s) => s.setActiveCategory);
 
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [editingPaper, setEditingPaper] = useState<Paper | null>(null);
 
   useEffect(() => {
     if (currentWorkspace && activeCategory !== 'folder') {
@@ -75,8 +77,16 @@ const CategoryView: React.FC = () => {
     openFile(pdfFile);
   }, [openFile]);
 
+  const handleEditorClose = useCallback(() => {
+    setEditingPaper(null);
+    // 重新加载分类数据以反映可能的分类变更
+    if (currentWorkspace && activeCategory !== 'folder') {
+      loadCategories(currentWorkspace.path, activeCategory as CategoryType);
+    }
+  }, [currentWorkspace, activeCategory, loadCategories]);
+
   return (
-    <div className="h-full flex flex-col bg-gray-50 dark:bg-gray-800">
+    <div className="h-full flex flex-col bg-gray-50 dark:bg-gray-800 relative">
       {/* 分类选择器 */}
       <div className="p-2 border-b border-gray-200 dark:border-gray-700">
         <div className="grid grid-cols-3 gap-1">
@@ -120,10 +130,18 @@ const CategoryView: React.FC = () => {
               isExpanded={expandedGroups.has(group.id)}
               onToggle={() => toggleGroup(group.id)}
               onPaperClick={handlePaperClick}
+              onEditPaper={setEditingPaper}
             />
           ))
         )}
       </div>
+
+      {/* Paper Editor Modal */}
+      <PaperEditor
+        paper={editingPaper}
+        isOpen={!!editingPaper}
+        onClose={handleEditorClose}
+      />
     </div>
   );
 };
@@ -133,6 +151,7 @@ interface CategoryGroupItemProps {
   isExpanded: boolean;
   onToggle: () => void;
   onPaperClick: (paper: Paper) => void;
+  onEditPaper: (paper: Paper) => void;
 }
 
 const CategoryGroupItem: React.FC<CategoryGroupItemProps> = ({
@@ -140,9 +159,24 @@ const CategoryGroupItem: React.FC<CategoryGroupItemProps> = ({
   isExpanded,
   onToggle,
   onPaperClick,
+  onEditPaper,
 }) => {
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; paper: Paper } | null>(null);
+
+  const handleContextMenu = (e: React.MouseEvent, paper: Paper) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, paper });
+  };
+
+  const handleEditCategory = () => {
+    if (contextMenu?.paper) {
+      onEditPaper(contextMenu.paper);
+    }
+    setContextMenu(null);
+  };
+
   return (
-    <div className="mb-1">
+    <div className="mb-1 relative">
       <button
         onClick={onToggle}
         className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-left"
@@ -163,21 +197,44 @@ const CategoryGroupItem: React.FC<CategoryGroupItemProps> = ({
       </button>
 
       {isExpanded && (
-        <div className="ml-4 border-l-2 border-gray-200 dark:border-gray-700">
+        <div className="ml-4 border-l-2 border-gray-200 dark:border-gray-700 relative">
           {group.papers.map((paper: any) => (
-            <button
-              key={paper.id}
-              onClick={() => onPaperClick(paper)}
-              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-left"
-            >
-              <FileText className="w-4 h-4 text-red-500 flex-shrink-0" />
-              <span className="text-sm text-gray-700 dark:text-gray-300 truncate">
-                {paper.displayTitle}
-              </span>
-              {paper.isFavorite && <span className="text-yellow-500">★</span>}
-            </button>
+            <div key={paper.id}>
+              <button
+                onClick={() => onPaperClick(paper)}
+                onContextMenu={(e) => handleContextMenu(e, paper)}
+                className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-left"
+              >
+                <FileText className="w-4 h-4 text-red-500 flex-shrink-0" />
+                <span className="text-sm text-gray-700 dark:text-gray-300 truncate">
+                  {paper.displayTitle}
+                </span>
+                {paper.isFavorite && <span className="text-yellow-500">★</span>}
+              </button>
+            </div>
           ))}
         </div>
+      )}
+
+      {/* 右键菜单 */}
+      {contextMenu && (
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setContextMenu(null)}
+          />
+          <div
+            className="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 min-w-[140px]"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+          >
+            <button
+              onClick={handleEditCategory}
+              className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+            >
+              🏷️ 编辑分类
+            </button>
+          </div>
+        </>
       )}
     </div>
   );

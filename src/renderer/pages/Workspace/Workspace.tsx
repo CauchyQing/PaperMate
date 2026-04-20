@@ -7,7 +7,7 @@ import PDFViewer from '../../components/PDFViewer/PDFViewer';
 import TabBar from '../../components/TabBar/TabBar';
 import ResizableSplitter from '../../components/ResizableSplitter/ResizableSplitter';
 import ChatPanel from '../../components/ChatPanel/ChatPanel';
-import { Folder, Layers, Filter as FilterIcon, Bookmark } from 'lucide-react';
+import { Folder, Layers, Filter as FilterIcon, Bookmark, PanelLeft, MessageSquare } from 'lucide-react';
 import AnnotationSidebar from '../../components/AnnotationSidebar/AnnotationSidebar';
 
 const MIN_SIDEBAR_WIDTH = 180;
@@ -26,17 +26,29 @@ const Workspace: React.FC = () => {
   const [fileBrowserWidth, setFileBrowserWidth] = useState(280);
   const [chatPanelWidth, setChatPanelWidth] = useState(360);
 
+  // Panel open states
+  const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
+  const [isChatPanelOpen, setIsChatPanelOpen] = useState(true);
+
   const handleFileBrowserResize = useCallback((delta: number) => {
     setFileBrowserWidth(prev => {
       const newWidth = prev + delta;
-      return Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, newWidth));
+      if (newWidth < MIN_SIDEBAR_WIDTH / 2) {
+        setTimeout(() => setIsLeftSidebarOpen(false), 0);
+        return 280; // Reset width for when it is reopened
+      }
+      return Math.min(MAX_SIDEBAR_WIDTH, newWidth);
     });
   }, []);
 
   const handleChatPanelResize = useCallback((delta: number) => {
     setChatPanelWidth(prev => {
       const newWidth = prev + delta;
-      return Math.max(MIN_CHAT_WIDTH, Math.min(MAX_CHAT_WIDTH, newWidth));
+      if (newWidth < MIN_CHAT_WIDTH / 2) {
+        setTimeout(() => setIsChatPanelOpen(false), 0);
+        return 360; // Reset width for when it is reopened
+      }
+      return Math.min(MAX_CHAT_WIDTH, newWidth);
     });
   }, []);
 
@@ -47,11 +59,35 @@ const Workspace: React.FC = () => {
         className="h-10 bg-gray-100/80 dark:bg-gray-800/80 backdrop-blur border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-4"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
-        {/* Left: Space for macOS traffic lights (80px) + Workspace name */}
+        {/* Left: Space for macOS traffic lights (80px) + Workspace name and toggle buttons */}
         <div className="flex items-center gap-2 pl-20" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          <span className="font-semibold text-gray-900 dark:text-white text-sm">
+          <span className="font-semibold text-gray-900 dark:text-white text-sm mr-2">
             {currentWorkspace?.name || 'Workspace'}
           </span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setIsLeftSidebarOpen(!isLeftSidebarOpen)}
+              className={`p-1 rounded transition-colors flex items-center justify-center ${
+                isLeftSidebarOpen 
+                  ? 'text-gray-900 bg-gray-200 dark:text-white dark:bg-gray-700' 
+                  : 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-gray-700'
+              }`}
+              title={isLeftSidebarOpen ? "隐藏侧边栏" : "显示侧边栏"}
+            >
+              <PanelLeft className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setIsChatPanelOpen(!isChatPanelOpen)}
+              className={`p-1 rounded transition-colors flex items-center justify-center ${
+                isChatPanelOpen 
+                  ? 'text-gray-900 bg-gray-200 dark:text-white dark:bg-gray-700' 
+                  : 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-gray-700'
+              }`}
+              title={isChatPanelOpen ? "隐藏AI对话" : "显示AI对话"}
+            >
+              <MessageSquare className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Right: Close button */}
@@ -68,8 +104,8 @@ const Workspace: React.FC = () => {
       <div className="flex-1 flex overflow-hidden">
         {/* Left Sidebar - File Browser or Category View */}
         <div
-          className="flex-shrink-0 border-r border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col"
-          style={{ width: fileBrowserWidth }}
+          className={`flex-shrink-0 border-r border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col ${isLeftSidebarOpen ? '' : 'hidden'}`}
+          style={{ width: Math.max(MIN_SIDEBAR_WIDTH, fileBrowserWidth) }}
         >
           {/* Sidebar View Switcher */}
           <div className="flex border-b border-gray-200 dark:border-gray-700">
@@ -132,12 +168,13 @@ const Workspace: React.FC = () => {
         <ResizableSplitter
           direction="horizontal"
           onResize={handleFileBrowserResize}
+          className={isLeftSidebarOpen ? '' : 'hidden'}
         />
 
         {/* Center - Chat Panel */}
         <div
-          className="flex-shrink-0 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden"
-          style={{ width: chatPanelWidth }}
+          className={`flex-shrink-0 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden ${isChatPanelOpen ? '' : 'hidden'}`}
+          style={{ width: Math.max(MIN_CHAT_WIDTH, chatPanelWidth) }}
         >
           <ChatPanel />
         </div>
@@ -146,6 +183,7 @@ const Workspace: React.FC = () => {
         <ResizableSplitter
           direction="horizontal"
           onResize={handleChatPanelResize}
+          className={isChatPanelOpen ? '' : 'hidden'}
         />
 
         {/* Right - PDF Viewer */}

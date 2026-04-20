@@ -90,9 +90,9 @@ export async function runAgentLoop(
             isStreamingAnswer = true;
             
             // Extract thought if available before answer
-            const thoughtMatch = fullResponse.match(/<thought>([\s\S]*?)<\/thought>/i);
-            if (thoughtMatch) {
-              parsed.thought = thoughtMatch[1].trim();
+            const thoughtMatches = Array.from(fullResponse.matchAll(/<thought>([\s\S]*?)<\/thought>/gi));
+            if (thoughtMatches.length > 0) {
+              parsed.thought = thoughtMatches.map(m => m[1].trim()).join('\n\n');
               options.onEvent({ type: 'agent_thought', thought: parsed.thought, requestId: options.requestId });
             }
 
@@ -166,18 +166,27 @@ export async function runAgentLoop(
 
     if (!isStreamingAnswer) {
       // Not an answer, must be a tool call (or incomplete)
-      const thoughtMatch = fullResponse.match(/<thought>([\s\S]*?)<\/thought>/i);
-      if (thoughtMatch) {
-        parsed.thought = thoughtMatch[1].trim();
+      const thoughtMatches = Array.from(fullResponse.matchAll(/<thought>([\s\S]*?)<\/thought>/gi));
+      if (thoughtMatches.length > 0) {
+        parsed.thought = thoughtMatches.map(m => m[1].trim()).join('\n\n');
         options.onEvent({ type: 'agent_thought', thought: parsed.thought, requestId: options.requestId });
       }
 
-      const toolCallMatch = fullResponse.match(/<tool_call>([\s\S]*?)<\/tool_call>/i);
-      if (toolCallMatch) {
-        try {
-          parsed.tool_call = JSON.parse(toolCallMatch[1].trim());
-        } catch (e) {
-          console.error('[Agent] Failed to parse tool_call JSON:', e);
+      const lastOpenIndex = fullResponse.lastIndexOf('<tool_call>');
+      if (lastOpenIndex !== -1) {
+        const closeIndex = fullResponse.indexOf('</tool_call>', lastOpenIndex);
+        let toolCallText = closeIndex !== -1 
+          ? fullResponse.substring(lastOpenIndex + 11, closeIndex).trim()
+          : fullResponse.substring(lastOpenIndex + 11).trim();
+
+        if (toolCallText) {
+          try {
+            const jsonMatch = toolCallText.match(/\{[\s\S]*\}/);
+            const jsonStr = jsonMatch ? jsonMatch[0] : toolCallText;
+            parsed.tool_call = JSON.parse(jsonStr);
+          } catch (e) {
+            console.error('[Agent] Failed to parse tool_call JSON from last tag:', e);
+          }
         }
       }
     }
