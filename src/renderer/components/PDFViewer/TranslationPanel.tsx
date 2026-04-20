@@ -34,18 +34,33 @@ export const TranslationPanel: React.FC<TranslationPanelProps> = ({
 
   // Load existing translations when paperId changes
   useEffect(() => {
-    if (!workspacePath || !paperId) return;
+    if (!workspacePath || !paperId) {
+      setTranslations({});
+      setLoadingPages(new Set());
+      return;
+    }
+    
+    // Clear previous document state immediately
+    setTranslations({});
+    setLoadingPages(new Set());
     
     const loadTranslations = async () => {
       try {
         const existing = await window.electronAPI.translationGet(workspacePath, paperId);
-        setTranslations(existing);
+        if (isMountedRef.current) {
+          setTranslations(existing);
+        }
       } catch (err) {
         console.error('Failed to load existing translations:', err);
       }
     };
     
+    const isMountedRef = { current: true };
     loadTranslations();
+    
+    return () => {
+      isMountedRef.current = false;
+    };
   }, [workspacePath, paperId]);
 
   const translatePage = useCallback(async (pageNum: number) => {

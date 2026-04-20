@@ -1,5 +1,6 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import * as crypto from 'crypto';
 
 export interface PageTranslation {
   pageNumber: number;
@@ -22,9 +23,9 @@ export class TranslationStore {
   }
 
   private getPaperDbPath(paperId: string): string {
-    // Sanitize paperId (which might be a file path) to use as a filename
-    const safeId = Buffer.from(paperId).toString('hex').slice(0, 32);
-    return path.join(this.translationsDir, `${safeId}.json`);
+    // Use SHA256 hash of the paperId (file path) to ensure unique and safe filenames
+    const hash = crypto.createHash('sha256').update(paperId).digest('hex');
+    return path.join(this.translationsDir, `${hash}.json`);
   }
 
   async getTranslation(paperId: string): Promise<Record<number, string>> {
