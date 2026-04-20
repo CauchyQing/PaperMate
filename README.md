@@ -2,8 +2,17 @@
 
 PaperMate 是一款基于 Electron 的桌面端学术论文阅读工具，集成 AI 助手功能，帮助研究人员高效阅读、理解和管理学术论文。
 
-![版本](https://img.shields.io/badge/version-2.0.0-blue)
+![版本](https://img.shields.io/badge/version-2.5.0-blue)
 ![许可证](https://img.shields.io/badge/license-CC%20BY--NC%204.0-orange)
+
+## 2.5.0 更新：PDF 阅读体验优化
+
+v2.5.0 重点优化了 PDF 阅读器的交互体验，并引入了**每个 PDF 独立记忆缩放**的功能。
+
+### 新增与优化
+
+- **独立缩放记忆** - 每个 PDF 文件现在会单独保存自己的缩放比例，切换标签页后自动恢复，不再全局共用同一个缩放
+- **修复 Windows 划选闪烁** - 修复了 Windows 下 PDF 文本划选时蓝色选区闪烁、乱跳、框选错位的问题，划选体验现在与 macOS 保持一致
 
 ## 2.0.0 重磅更新：ReAct Agent + Skill 系统
 

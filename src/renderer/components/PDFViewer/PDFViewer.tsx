@@ -106,7 +106,7 @@ const PDFPageItem = React.memo<PDFPageItemProps>(({
 });
 
 const PDFViewer: React.FC = () => {
-  const { activeFileId, openFiles } = useFileStore();
+  const { activeFileId, openFiles, fileScales, setFileScale } = useFileStore();
   const [numPages, setNumPages] = useState<number>(0);
   const [scale, setScale] = useState<number>(1.2);
   const [rotation, setRotation] = useState<number>(0);
@@ -154,6 +154,26 @@ const PDFViewer: React.FC = () => {
   const hasRestoredRef = useRef(false);
 
   const activeFile = openFiles.find((f) => f.id === activeFileId);
+
+  // Restore per-file scale when switching tabs
+  useEffect(() => {
+    if (activeFile) {
+      const savedScale = fileScales[activeFile.path];
+      if (savedScale && savedScale !== scaleRef.current) {
+        setScale(savedScale);
+      }
+    } else {
+      setScale(1.2);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFile]);
+
+  // Persist scale changes per file
+  useEffect(() => {
+    if (activeFile) {
+      setFileScale(activeFile.path, scale);
+    }
+  }, [scale, activeFile, setFileScale]);
 
   // Refs to avoid recreating callbacks/effects on every state change
   const activeFileRef = useRef(activeFile);

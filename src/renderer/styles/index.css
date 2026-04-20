@@ -86,3 +86,48 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Chat markdown table styles */
+.chat-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.5rem 0;
+  font-size: 0.875rem;
+}
+
+.chat-markdown th,
+.chat-markdown td {
+  border: 1px solid #d1d5db;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+
+.chat-markdown th {
+  background-color: #e5e7eb;
+  font-weight: 600;
+}
+
+.dark .chat-markdown th,
+.dark .chat-markdown td {
+  border-color: #4b5563;
+}
+
+.dark .chat-markdown th {
+  background-color: #4b5563;
+}
+
+/* Fix Windows text selection flicker/jump in PDF.js text layer.
+   By default absolutely-positioned spans have gaps between them;
+   when the cursor hits a gap the selection jumps to the parent.
+   pointer-events: none on the layer + auto on spans keeps the mouse
+   always over a text element, which eliminates the jump/flicker.
+   See: https://github.com/mozilla/pdf.js/issues/9168 */
+.textLayer {
+  pointer-events: none !important;
+}
+
+.textLayer span,
+.textLayer br,
+.textLayer .endOfContent {
+  pointer-events: auto !important;
+}

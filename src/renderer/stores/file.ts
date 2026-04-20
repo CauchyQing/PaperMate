@@ -17,6 +17,9 @@ interface FileState {
   openFiles: PDFFile[];
   activeFileId: string | null;
 
+  // Per-file viewer state (e.g. zoom scale)
+  fileScales: Record<string, number>;
+
   // Actions
   loadFiles: (workspacePath: string) => Promise<void>;
   expandNode: (node: FileNode, workspacePath: string) => Promise<void>;
@@ -27,6 +30,7 @@ interface FileState {
   setActiveFile: (fileId: string) => void;
   importFile: (sourcePath: string, targetDir: string, workspacePath: string) => Promise<void>;
   refreshFiles: (workspacePath: string) => Promise<void>;
+  setFileScale: (filePath: string, scale: number) => void;
 }
 
 export const useFileStore = create<FileState>()((set, get) => ({
@@ -37,6 +41,7 @@ export const useFileStore = create<FileState>()((set, get) => ({
   selectedFile: null,
   openFiles: [],
   activeFileId: null,
+  fileScales: {},
 
   loadFiles: async (workspacePath: string) => {
     set({ isLoading: true, error: null });
@@ -135,6 +140,12 @@ export const useFileStore = create<FileState>()((set, get) => ({
 
   setActiveFile: (fileId: string) => {
     set({ activeFileId: fileId });
+  },
+
+  setFileScale: (filePath: string, scale: number) => {
+    set((state) => ({
+      fileScales: { ...state.fileScales, [filePath]: scale },
+    }));
   },
 
   importFile: async (sourcePath: string, targetDir: string, workspacePath: string) => {

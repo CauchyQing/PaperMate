@@ -37,7 +37,9 @@ export const PageAnnotations: React.FC<PageAnnotationsProps> = ({
           pointerEvents: 'auto',
           cursor: 'pointer',
           zIndex: 10,
-          mixBlendMode: annotation.type === 'highlight' ? 'multiply' : undefined,
+          /* mixBlendMode removed: on Windows/Electron it can trigger
+             GPU compositing bugs that make text-selection highlights
+             flicker and jump. Plain opacity is sufficient. */
         };
         return (
           <div
