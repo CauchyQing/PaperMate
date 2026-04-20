@@ -91,6 +91,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   annotationUpdate: (workspacePath: string, id: string, updates: any) => ipcRenderer.invoke('annotation:update', workspacePath, id, updates),
   annotationDelete: (workspacePath: string, id: string) => ipcRenderer.invoke('annotation:delete', workspacePath, id),
 
+  // Translation operations
+  translationGet: (workspacePath: string, paperId: string) => ipcRenderer.invoke('translation:get', workspacePath, paperId),
+  translationSavePage: (workspacePath: string, paperId: string, pageNumber: number, content: string) => ipcRenderer.invoke('translation:savePage', workspacePath, paperId, pageNumber, content),
+
   // Desktop capturer (fallback)
   desktopCapturerGetSources: (options: any) => ipcRenderer.invoke('desktopCapturer:getSources', options),
   // Window capture - captures app window region without screen recording permission
@@ -158,6 +162,9 @@ declare global {
       annotationCreate: (workspacePath: string, annotation: any) => Promise<any>;
       annotationUpdate: (workspacePath: string, id: string, updates: any) => Promise<any>;
       annotationDelete: (workspacePath: string, id: string) => Promise<boolean>;
+      // Translation operations
+      translationGet: (workspacePath: string, paperId: string) => Promise<Record<number, string>>;
+      translationSavePage: (workspacePath: string, paperId: string, pageNumber: number, content: string) => Promise<void>;
       // Desktop capturer
       desktopCapturerGetSources: (options: any) => Promise<any[]>;
       // Window capture

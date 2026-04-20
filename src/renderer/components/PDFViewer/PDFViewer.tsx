@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
-import { ZoomIn, ZoomOut, RotateCw, FileText, Bookmark, List, Search, ChevronUp, ChevronDown, X } from 'lucide-react';
+import { ZoomIn, ZoomOut, RotateCw, FileText, Bookmark, List, Search, ChevronUp, ChevronDown, X, Languages } from 'lucide-react';
 import { useFileStore } from '../../stores/file';
 import { useConversationStore } from '../../stores/conversation';
 import { useWorkspaceStore } from '../../stores/workspace';
@@ -10,6 +10,8 @@ import { PageAnnotations } from './PageAnnotations';
 import { AnnotationEditPopover } from './AnnotationEditPopover';
 import { AnnotationCreateDialog } from '../AnnotationDialog/AnnotationCreateDialog';
 import PDFOutline from './PDFOutline';
+import { TranslationPanel } from './TranslationPanel';
+import ResizableSplitter from '../ResizableSplitter/ResizableSplitter';
 import type { Annotation, AnnotationType } from '../../../shared/types/annotation';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
@@ -141,6 +143,8 @@ const PDFViewer: React.FC = () => {
 
   // In-PDF annotation panel visibility
   const [showAnnotationPanel, setShowAnnotationPanel] = useState(false);
+  const [showTranslationPanel, setShowTranslationPanel] = useState(false);
+  const [translationPanelWidth, setTranslationPanelWidth] = useState(400);
 
   // Inline annotation editor state
   const [editingAnnotation, setEditingAnnotation] = useState<{
@@ -886,6 +890,10 @@ const PDFViewer: React.FC = () => {
     setEditingAnnotation({ annotation: anno, pageNumber: anno.pageNumber, rect });
   }, []);
 
+  const handleResizeTranslation = useCallback((delta: number) => {
+    setTranslationPanelWidth((prev) => Math.min(Math.max(prev - delta, 300), 800));
+  }, []);
+
   const handleUpdateAnnotation = useCallback(async (id: string, title: string, comment: string) => {
     await updateAnnotation(workspacePathRef.current, id, {
       title: title.trim() || undefined,
@@ -975,6 +983,19 @@ const PDFViewer: React.FC = () => {
             <Search className="w-5 h-5" />
           </button>
           
+          {/* Translation toggle */}
+          <button
+            onClick={() => setShowTranslationPanel(!showTranslationPanel)}
+            className={`p-1.5 rounded transition-colors ${
+              showTranslationPanel
+                ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
+                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+            }`}
+            title="沉浸式翻译"
+          >
+            <Languages className="w-5 h-5" />
+          </button>
+
           <div className="w-px h-6 bg-gray-300 dark:bg-gray-700 mx-2" />
 
           {/* Outline toggle */}
@@ -1173,6 +1194,26 @@ const PDFViewer: React.FC = () => {
             onUnderline={handleUnderline}
           />
         </div>
+
+        {/* Translation Panel */}
+        {showTranslationPanel && (
+          <>
+            <ResizableSplitter
+              direction="horizontal"
+              onResize={handleResizeTranslation}
+              className="z-20"
+            />
+            <TranslationPanel
+              pdf={pdfRef.current}
+              visiblePageNumbers={visiblePageNumbers}
+              currentPage={currentPage}
+              isActive={showTranslationPanel}
+              width={translationPanelWidth}
+              workspacePath={workspacePath}
+              paperId={activeFile?.path || ''}
+            />
+          </>
+        )}
 
         {/* In-PDF Annotation Panel */}
         {showAnnotationPanel && (

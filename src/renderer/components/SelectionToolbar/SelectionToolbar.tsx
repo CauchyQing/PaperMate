@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Languages, HelpCircle, MessageCircle, Highlighter, Underline } from 'lucide-react';
+import { QuickTranslatePopover } from './QuickTranslatePopover';
 
 interface SelectionToolbarProps {
   containerRef: React.RefObject<HTMLElement>;
@@ -15,6 +16,10 @@ interface Position {
   y: number;
 }
 
+const isShortText = (text: string) => {
+  return text.length < 50 && !text.includes('\n');
+};
+
 const SelectionToolbar: React.FC<SelectionToolbarProps> = ({
   containerRef,
   onTranslate,
@@ -27,6 +32,7 @@ const SelectionToolbar: React.FC<SelectionToolbarProps> = ({
   const [selectedRects, setSelectedRects] = useState<DOMRectList | null>(null);
   const [position, setPosition] = useState<Position | null>(null);
   const [isVisible, setIsVisible] = useState(false);
+  const [showQuickTranslate, setShowQuickTranslate] = useState(false);
   const isMouseDownRef = useRef(false);
 
   const hideToolbar = useCallback(() => {
@@ -34,6 +40,7 @@ const SelectionToolbar: React.FC<SelectionToolbarProps> = ({
     setSelectedText('');
     setSelectedRects(null);
     setPosition(null);
+    setShowQuickTranslate(false);
   }, []);
 
   // Show toolbar only after mouse is released to avoid the toolbar
@@ -70,6 +77,7 @@ const SelectionToolbar: React.FC<SelectionToolbarProps> = ({
       setSelectedRects(range.getClientRects());
       setPosition({ x, y });
       setIsVisible(true);
+      setShowQuickTranslate(false);
     };
 
     const handleSelectionChange = () => {
@@ -105,13 +113,14 @@ const SelectionToolbar: React.FC<SelectionToolbarProps> = ({
         const y = rect.top - 50;
         setPosition({ x, y });
         setIsVisible(true);
+        setShowQuickTranslate(false);
       }
     };
 
     const handleMouseDown = (e: MouseEvent) => {
       isMouseDownRef.current = true;
       const target = e.target as HTMLElement;
-      if (!target.closest('.selection-toolbar')) {
+      if (!target.closest('.selection-toolbar') && !target.closest('.quick-translate-popover')) {
         hideToolbar();
       }
     };
@@ -139,7 +148,12 @@ const SelectionToolbar: React.FC<SelectionToolbarProps> = ({
     if (!selectedText) return;
     switch (action) {
       case 'translate':
-        onTranslate(selectedText);
+        if (isShortText(selectedText)) {
+          setShowQuickTranslate(true);
+          return; // Do not hide toolbar yet
+        } else {
+          onTranslate(selectedText);
+        }
         break;
       case 'explain':
         onExplain(selectedText);
@@ -168,62 +182,78 @@ const SelectionToolbar: React.FC<SelectionToolbarProps> = ({
   if (!isVisible || !position) return null;
 
   return (
-    <div
-      className="selection-toolbar fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 px-1 flex items-center gap-0.5 select-none"
-      style={{
-        left: `${position.x}px`,
-        top: `${position.y}px`,
-        transform: 'translateX(-50%)',
-        userSelect: 'none',
-      }}
-      onMouseDown={(e) => e.stopPropagation()}
-      onMouseUp={(e) => e.stopPropagation()}
-    >
-      <button
-        onClick={() => handleAction('translate')}
-        className="flex items-center gap-1 px-2 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors select-none"
-        title="翻译"
+    <>
+      <div
+        className="selection-toolbar fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 px-1 flex items-center gap-0.5 select-none"
+        style={{
+          left: `${position.x}px`,
+          top: `${position.y}px`,
+          transform: 'translateX(-50%)',
+          userSelect: 'none',
+        }}
+        onMouseDown={(e) => e.stopPropagation()}
+        onMouseUp={(e) => e.stopPropagation()}
       >
-        <Languages className="w-3.5 h-3.5" />
-        <span>翻译</span>
-      </button>
-      <div className="w-px h-4 bg-gray-200 dark:bg-gray-600 mx-0.5" />
-      <button
-        onClick={() => handleAction('explain')}
-        className="flex items-center gap-1 px-2 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors select-none"
-        title="解释"
-      >
-        <HelpCircle className="w-3.5 h-3.5" />
-        <span>解释</span>
-      </button>
-      <div className="w-px h-4 bg-gray-200 dark:bg-gray-600 mx-0.5" />
-      <button
-        onClick={() => handleAction('ask')}
-        className="flex items-center gap-1 px-2 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors select-none"
-        title="提问"
-      >
-        <MessageCircle className="w-3.5 h-3.5" />
-        <span>提问</span>
-      </button>
-      <div className="w-px h-4 bg-gray-200 dark:bg-gray-600 mx-0.5" />
-      <button
-        onClick={() => handleAction('highlight')}
-        className="flex items-center gap-1 px-2 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors select-none"
-        title="荧光笔"
-      >
-        <Highlighter className="w-3.5 h-3.5 text-yellow-500" />
-        <span>高亮</span>
-      </button>
-      <div className="w-px h-4 bg-gray-200 dark:bg-gray-600 mx-0.5" />
-      <button
-        onClick={() => handleAction('underline')}
-        className="flex items-center gap-1 px-2 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors select-none"
-        title="下划线"
-      >
-        <Underline className="w-3.5 h-3.5 text-blue-500" />
-        <span>划线</span>
-      </button>
-    </div>
+        <button
+          onClick={() => handleAction('translate')}
+          className="flex items-center gap-1 px-2 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors select-none"
+          title="翻译"
+        >
+          <Languages className="w-3.5 h-3.5" />
+          <span>翻译</span>
+        </button>
+        <div className="w-px h-4 bg-gray-200 dark:bg-gray-600 mx-0.5" />
+        <button
+          onClick={() => handleAction('explain')}
+          className="flex items-center gap-1 px-2 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors select-none"
+          title="解释"
+        >
+          <HelpCircle className="w-3.5 h-3.5" />
+          <span>解释</span>
+        </button>
+        <div className="w-px h-4 bg-gray-200 dark:bg-gray-600 mx-0.5" />
+        <button
+          onClick={() => handleAction('ask')}
+          className="flex items-center gap-1 px-2 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors select-none"
+          title="提问"
+        >
+          <MessageCircle className="w-3.5 h-3.5" />
+          <span>提问</span>
+        </button>
+        <div className="w-px h-4 bg-gray-200 dark:bg-gray-600 mx-0.5" />
+        <button
+          onClick={() => handleAction('highlight')}
+          className="flex items-center gap-1 px-2 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors select-none"
+          title="荧光笔"
+        >
+          <Highlighter className="w-3.5 h-3.5 text-yellow-500" />
+          <span>高亮</span>
+        </button>
+        <div className="w-px h-4 bg-gray-200 dark:bg-gray-600 mx-0.5" />
+        <button
+          onClick={() => handleAction('underline')}
+          className="flex items-center gap-1 px-2 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors select-none"
+          title="下划线"
+        >
+          <Underline className="w-3.5 h-3.5 text-blue-500" />
+          <span>划线</span>
+        </button>
+      </div>
+
+      {showQuickTranslate && (
+        <div className="quick-translate-popover">
+          <QuickTranslatePopover
+            text={selectedText}
+            position={{ x: position.x, y: position.y + 40 }} // Render below selection
+            onClose={() => {
+              setShowQuickTranslate(false);
+              hideToolbar();
+              window.getSelection()?.removeAllRanges();
+            }}
+          />
+        </div>
+      )}
+    </>
   );
 };
 

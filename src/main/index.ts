@@ -21,6 +21,7 @@ import { estimateTokens, splitIntoChunks, buildContextWindow } from './services/
 import { analyzePaper, createAnalysisPrompt } from './services/paper-analysis';
 import { startAgentLoop, stopAgentLoop } from './agent/agent-service';
 import { buildPdfContext } from './services/pdf-context';
+import { getTranslationStore } from './services/translation-store';
 import type { AIProviderConfig } from '../shared/types/ai';
 
 // Keep a global reference of the window object
@@ -409,6 +410,17 @@ ipcMain.handle('annotation:delete', async (_event, workspacePath: string, id: st
   const store = getAnnotationStore(workspacePath);
   await store.init();
   return store.delete(id);
+});
+
+// Translation IPC handlers
+ipcMain.handle('translation:get', async (_event, workspacePath: string, paperId: string) => {
+  const store = getTranslationStore(workspacePath);
+  return store.getTranslation(paperId);
+});
+
+ipcMain.handle('translation:savePage', async (_event, workspacePath: string, paperId: string, pageNumber: number, content: string) => {
+  const store = getTranslationStore(workspacePath);
+  return store.savePageTranslation(paperId, pageNumber, content);
 });
 
 // Context management IPC handlers
