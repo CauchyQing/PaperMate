@@ -1,6 +1,27 @@
 import * as fs from 'fs';
 import { registerTool } from '../tool-registry';
 
+// Fix for packaged Windows app: DOMMatrix is undefined in Electron main process (Node 20)
+// and native canvas modules may fail to load, causing pdf-parse initialization to throw.
+if (typeof (global as any).DOMMatrix === 'undefined') {
+  let dm: any;
+  try {
+    dm = require('@napi-rs/canvas').DOMMatrix;
+  } catch (e) {
+    try {
+      dm = require('canvas').DOMMatrix;
+    } catch (e2) {
+      dm = class DOMMatrix {
+        constructor() {}
+        scaleSelf() { return this; }
+        translateSelf() { return this; }
+        multiplySelf() { return this; }
+      };
+    }
+  }
+  (global as any).DOMMatrix = dm;
+}
+
 const { PDFParse } = require('pdf-parse');
 
 async function extractPdfText(filePath: string, maxPages = 20): Promise<string> {

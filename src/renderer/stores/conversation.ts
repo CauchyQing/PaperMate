@@ -33,6 +33,7 @@ interface ConversationState {
   setPrefillText: (text: string | null) => void;
   updateConversationTitle: (workspacePath: string, id: string, newTitle: string) => Promise<void>;
   updateConversationPdfContext: (workspacePath: string, id: string, pdfContext: import('../../shared/types').PdfContext) => Promise<void>;
+  generateTitle: (workspacePath: string, id: string, firstAssistantMessage: string) => Promise<void>;
   // Generate summary for long conversation
   generateSummary: (workspacePath: string, messages: Message[]) => Promise<string>;
   clearAgentSteps: () => void;
@@ -143,36 +144,25 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
       let summary = '';
       await new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => {
+          if (summaryUnsub) summaryUnsub();
           reject(new Error('摘要生成超时'));
         }, 60000);
 
-        const checkSummary = (event: ChatStreamEvent) => {
+        const summaryUnsub = window.electronAPI.onAIStreamEvent((event: ChatStreamEvent) => {
           if (event.requestId !== summaryRequestId) return;
 
           if (event.type === 'chunk' && event.content) {
             summary += event.content;
           } else if (event.type === 'done') {
             clearTimeout(timeout);
+            summaryUnsub();
             resolve();
           } else if (event.type === 'error') {
             clearTimeout(timeout);
+            summaryUnsub();
             reject(new Error(event.error));
           }
-        };
-
-        // Temporarily override the event handler
-        const originalHandler = unsubStreamEvent;
-        unsubStreamEvent = window.electronAPI.onAIStreamEvent((event: ChatStreamEvent) => {
-          checkSummary(event);
-          // Also call original handler for other events
-          if (event.requestId === summaryRequestId) return;
-          get().handleStreamEvent(event);
         });
-
-        // Restore original handler after completion
-        setTimeout(() => {
-          unsubStreamEvent = originalHandler;
-        }, 60000);
       });
 
       // Store summary
@@ -189,6 +179,64 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
       return '';
     } finally {
       set({ isGeneratingSummary: false });
+    }
+  },
+
+  generateTitle: async (workspacePath: string, id: string, firstAssistantMessage: string) => {
+    try {
+      const titleRequestId = `title_${Date.now()}`;
+      
+      // Get the first user message for context
+      const messages = get().messages;
+      const firstUserMsg = messages.find(m => m.role === 'user');
+      const userContent = firstUserMsg ? firstUserMsg.content : '';
+
+      const prompt = `你是一个起名助手。请根据以下用户的第一条消息和你的回复，为这个对话生成一个非常简短、准确的标题（不要超过10个字，不要使用标点符号，直接输出标题内容即可）。
+
+用户: ${userContent}
+助手: ${firstAssistantMessage}`;
+
+      const titleMessages = [
+        { role: 'user' as const, content: prompt },
+      ];
+
+      // Send title request
+      await window.electronAPI.aiChat(titleMessages, { requestId: titleRequestId });
+
+      // Wait for title completion
+      let title = '';
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          if (titleUnsub) titleUnsub();
+          reject(new Error('标题生成超时'));
+        }, 15000);
+
+        const titleUnsub = window.electronAPI.onAIStreamEvent((event: ChatStreamEvent) => {
+          if (event.requestId !== titleRequestId) return;
+
+          if (event.type === 'chunk' && event.content) {
+            title += event.content;
+          } else if (event.type === 'done') {
+            clearTimeout(timeout);
+            titleUnsub();
+            resolve();
+          } else if (event.type === 'error') {
+            clearTimeout(timeout);
+            titleUnsub();
+            reject(new Error(event.error));
+          }
+        });
+      });
+
+      title = title.trim();
+      // Remove any quotes and punctuation
+      title = title.replace(/^["']|["']$/g, '').replace(/[。，！？,!?]$/, '');
+      if (title && title.length <= 20) {
+        console.log('[Conversation] Generated title:', title);
+        await get().updateConversationTitle(workspacePath, id, title);
+      }
+    } catch (error) {
+      console.error('[Conversation] Failed to generate title:', error);
     }
   },
 
@@ -384,7 +432,7 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
         break;
       case 'done': {
         console.log('[Renderer] Stream done, final content length:', get().streamingContent.length);
-        const { streamingContent: finalContent, activeConversationId, currentWorkspacePath, agentSteps: finalAgentSteps } = get();
+        const { streamingContent: finalContent, activeConversationId, currentWorkspacePath, agentSteps: finalAgentSteps, conversations } = get();
         if (finalContent && activeConversationId && currentWorkspacePath) {
           window.electronAPI.messageAdd(currentWorkspacePath, {
             conversationId: activeConversationId,
@@ -394,6 +442,12 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
             metadata: finalAgentSteps.length > 0 ? { agentSteps: finalAgentSteps } : undefined,
           }).then(assistantMsg => {
             set(s => ({ messages: [...s.messages, assistantMsg] }));
+            
+            // Check if this is the first message (conversation topic is still default)
+            const activeConv = conversations.find(c => c.id === activeConversationId);
+            if (activeConv && activeConv.topic === '新对话') {
+              get().generateTitle(currentWorkspacePath, activeConversationId, finalContent);
+            }
           });
         }
         set({ isStreaming: false, streamingContent: '', activeRequestId: null, agentSteps: [] });
