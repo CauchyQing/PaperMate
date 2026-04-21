@@ -58,6 +58,7 @@ interface PDFPageItemProps {
   onCloseEdit: () => void;
   onPageLoadSuccess?: (page: any) => void;
   customTextRenderer?: (textItem: any) => string;
+  pageSize?: { width: number; height: number };
 }
 
 const PDFPageItem = React.memo<PDFPageItemProps>(({
@@ -72,7 +73,11 @@ const PDFPageItem = React.memo<PDFPageItemProps>(({
   onCloseEdit,
   onPageLoadSuccess,
   customTextRenderer,
+  pageSize,
 }) => {
+  const placeholderWidth = pageSize ? Math.round(pageSize.width * scale) : 600;
+  const placeholderHeight = pageSize ? Math.round(pageSize.height * scale) : 800;
+
   return (
     <div data-page-num={pageNum} style={{ marginBottom: PAGE_MARGIN }} className="shadow-lg bg-white dark:bg-gray-900 relative">
       <Page
@@ -84,7 +89,7 @@ const PDFPageItem = React.memo<PDFPageItemProps>(({
         customTextRenderer={customTextRenderer}
         onLoadSuccess={onPageLoadSuccess}
         loading={
-          <div style={{ width: 600, height: 800 }} className="flex items-center justify-center bg-gray-200 dark:bg-gray-700">
+          <div style={{ width: placeholderWidth, height: placeholderHeight }} className="flex items-center justify-center bg-gray-200 dark:bg-gray-700">
             <div className="animate-pulse text-gray-400">Loading page {pageNum}...</div>
           </div>
         }
@@ -677,17 +682,18 @@ const PDFViewer: React.FC = () => {
   }, []);
 
   // Trackpad pinch-to-zoom (macOS & Windows) + Ctrl+Wheel zoom
-  // Uses CSS zoom for gesture-time visual feedback (zero React re-renders).
-  // Scroll is manually compensated so the zoom is always centred on the pointer.
+  // Uses CSS transform:scale() for gesture-time visual feedback.
+  // transform does NOT affect layout, so the browser never auto-adjusts scroll.
+  // transform-origin is pinned to the pointer, giving a perfectly centred zoom.
   const gestureDeltaRef = useRef(0);
   const zoomTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingCommitRef = useRef<{ oldScale: number; zoomFactor: number } | null>(null);
-  const gestureStateRef = useRef<{
-    startScrollLeft: number;
-    startScrollTop: number;
-    startPointerX: number;
-    startPointerY: number;
-    active: boolean;
+  const gestureOriginRef = useRef<{ x: number; y: number } | null>(null);
+  const gestureStartRef = useRef<{
+    scrollLeft: number;
+    scrollTop: number;
+    pointerX: number;
+    pointerY: number;
   } | null>(null);
 
   const handleContainerWheel = useCallback((e: React.WheelEvent) => {
@@ -698,30 +704,29 @@ const PDFViewer: React.FC = () => {
     const content = contentRef.current;
     if (!container || !content) return;
 
-    // First event of a gesture: capture starting scroll & pointer position
-    if (!gestureStateRef.current?.active) {
-      const rect = container.getBoundingClientRect();
-      gestureStateRef.current = {
-        startScrollLeft: container.scrollLeft,
-        startScrollTop: container.scrollTop,
-        startPointerX: e.clientX - rect.left,
-        startPointerY: e.clientY - rect.top,
-        active: true,
+    // First event of a gesture: lock transform-origin and record starting state
+    if (!gestureOriginRef.current) {
+      const contentRect = content.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      gestureOriginRef.current = {
+        x: e.clientX - contentRect.left,
+        y: e.clientY - contentRect.top,
+      };
+      gestureStartRef.current = {
+        scrollLeft: container.scrollLeft,
+        scrollTop: container.scrollTop,
+        pointerX: e.clientX - containerRect.left,
+        pointerY: e.clientY - containerRect.top,
       };
     }
 
     gestureDeltaRef.current += e.deltaY;
     const zoomFactor = Math.pow(2, -gestureDeltaRef.current * 0.01);
 
-    // Apply CSS zoom (affects layout, so scrollbars grow/shrink automatically)
-    content.style.zoom = `${zoomFactor}`;
-
-    // Compensate scroll so the pointer stays anchored to the same content point.
-    // Derived from:  pointer = (scroll + pointer) * zoomFactor - newScroll
-    const { startScrollLeft, startScrollTop, startPointerX, startPointerY } =
-      gestureStateRef.current;
-    container.scrollLeft = startScrollLeft * zoomFactor + startPointerX * (zoomFactor - 1);
-    container.scrollTop = startScrollTop * zoomFactor + startPointerY * (zoomFactor - 1);
+    // GPU-accelerated transform; browser never touches scroll because layout is unchanged
+    const { x, y } = gestureOriginRef.current;
+    content.style.transform = `scale(${zoomFactor})`;
+    content.style.transformOrigin = `${x}px ${y}px`;
 
     // Reset gesture-end timer
     if (zoomTimeoutRef.current) clearTimeout(zoomTimeoutRef.current);
@@ -729,7 +734,7 @@ const PDFViewer: React.FC = () => {
     // 200 ms after the last wheel event we consider the gesture finished
     zoomTimeoutRef.current = setTimeout(() => {
       zoomTimeoutRef.current = null;
-      gestureStateRef.current = null;
+      gestureOriginRef.current = null;
       const finalDelta = gestureDeltaRef.current;
       gestureDeltaRef.current = 0;
 
@@ -737,7 +742,9 @@ const PDFViewer: React.FC = () => {
       const finalZoomFactor = Math.pow(2, -finalDelta * 0.01);
       const newScale = Math.min(Math.max(oldScale * finalZoomFactor, 0.5), 3.0);
       if (Math.abs(newScale - oldScale) < 0.005) {
-        content.style.zoom = '';
+        content.style.transform = '';
+        content.style.transformOrigin = '';
+        gestureStartRef.current = null;
         return;
       }
 
@@ -747,16 +754,43 @@ const PDFViewer: React.FC = () => {
     }, 200);
   }, []);
 
-  // When react-pdf finishes rendering the new scale, remove the CSS zoom.
-  // newScale = oldScale * zoomFactor, so the layout size should already match
-  // the zoomed size; only a minor scroll drift correction is needed.
+  // When react-pdf finishes rendering the new scale, remove the CSS transform
+  // so the crisp high-res pages take over.
+  // We compensate scroll to keep the pointer-centred zoom effect intact.
   useLayoutEffect(() => {
     const commit = pendingCommitRef.current;
-    if (!commit) return;
+    const gesture = gestureStartRef.current;
+    if (!commit || !gesture) return;
     pendingCommitRef.current = null;
+    gestureStartRef.current = null;
 
+    const container = scrollContainerRef.current;
     const content = contentRef.current;
-    if (content) content.style.zoom = '';
+    if (!container || !content) return;
+
+    const z = commit.zoomFactor;
+
+    // Lock the browser from touching scroll during layout churn
+    const originalOverflow = container.style.overflow;
+    const originalScrollBehavior = container.style.scrollBehavior;
+    container.style.overflow = 'hidden';
+    container.style.scrollBehavior = 'auto';
+
+    // Remove transform
+    content.style.transform = '';
+    content.style.transformOrigin = '';
+
+    // Force reflow so the new layout size is calculated while overflow is hidden
+    void content.offsetHeight;
+
+    // Compensate scroll so the point under the pointer stays in the same place.
+    // Derived from:  newScroll + pointer = (startScroll + pointer) * z
+    container.scrollLeft = gesture.scrollLeft * z + gesture.pointerX * (z - 1);
+    container.scrollTop = gesture.scrollTop * z + gesture.pointerY * (z - 1);
+
+    // Release the lock
+    container.style.overflow = originalOverflow;
+    container.style.scrollBehavior = originalScrollBehavior;
   }, [scale]);
 
   // Mouse Drag to Pan
@@ -1349,6 +1383,7 @@ const PDFViewer: React.FC = () => {
                     onCloseEdit={handleCloseEdit}
                     onPageLoadSuccess={onPageLoadSuccess}
                     customTextRenderer={textRenderer}
+                    pageSize={pageSizesRef.current.get(pageNum)}
                   />
                 ))}
               </Document>
