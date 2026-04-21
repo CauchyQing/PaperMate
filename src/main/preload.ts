@@ -75,6 +75,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   messageList: (workspacePath: string, conversationId: string) => ipcRenderer.invoke('message:list', workspacePath, conversationId),
   messageAdd: (workspacePath: string, message: any) => ipcRenderer.invoke('message:add', workspacePath, message),
   messageUpdate: (workspacePath: string, id: string, updates: any) => ipcRenderer.invoke('message:update', workspacePath, id, updates),
+  messageDeleteMany: (workspacePath: string, ids: string[]) => ipcRenderer.invoke('message:deleteMany', workspacePath, ids),
 
   // Context management operations
   contextEstimateTokens: (text: string) => ipcRenderer.invoke('context:estimateTokens', text),
@@ -150,6 +151,7 @@ declare global {
       messageList: (workspacePath: string, conversationId: string) => Promise<any[]>;
       messageAdd: (workspacePath: string, message: any) => Promise<any>;
       messageUpdate: (workspacePath: string, id: string, updates: any) => Promise<any>;
+      messageDeleteMany: (workspacePath: string, ids: string[]) => Promise<number>;
       // Context management operations
       contextEstimateTokens: (text: string) => Promise<number>;
       contextSplitIntoChunks: (text: string, maxTokensPerChunk?: number) => Promise<{ chunks: string[]; totalTokens: number }>;

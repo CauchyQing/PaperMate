@@ -105,15 +105,13 @@ const ChatInput: React.FC<ChatInputProps> = ({
         </div>
       )}
       <div className="flex items-end gap-2">
-        <div className="flex items-center gap-1">
-          <button
-            onClick={onSelectAttachment}
-            className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
-            title="添加 PDF 附件"
-          >
-            <Paperclip className="w-4 h-4 text-gray-500" />
-          </button>
-        </div>
+        <button
+          onClick={onSelectAttachment}
+          className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors flex-shrink-0 mb-px"
+          title="添加 PDF 附件"
+        >
+          <Paperclip className="w-4 h-4 text-gray-500" />
+        </button>
         <textarea
           ref={textareaRef}
           value={input}

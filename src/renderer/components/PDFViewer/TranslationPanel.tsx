@@ -243,7 +243,7 @@ export const TranslationPanel: React.FC<TranslationPanelProps> = ({
                   <div className="h-px flex-1 bg-gray-100 dark:bg-gray-800" />
               </div>
               
-              <div className="prose prose-sm dark:prose-invert max-w-none text-gray-700 dark:text-gray-300 leading-relaxed">
+              <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-pre:my-2 prose-code:text-xs text-gray-700 dark:text-gray-300 leading-relaxed chat-markdown">
                 {translations[pageNum] ? (
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm, remarkMath]}

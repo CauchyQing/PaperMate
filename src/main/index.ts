@@ -381,6 +381,12 @@ ipcMain.handle('message:update', async (_event, workspacePath: string, id: strin
   return store.updateMessage(id, updates);
 });
 
+ipcMain.handle('message:deleteMany', async (_event, workspacePath: string, ids: string[]) => {
+  const store = getConversationStore(workspacePath);
+  await store.init();
+  return store.deleteMessages(ids);
+});
+
 // Annotation IPC handlers
 ipcMain.handle('annotation:getAll', async (_event, workspacePath: string) => {
   const store = getAnnotationStore(workspacePath);

@@ -36,6 +36,7 @@ interface ConversationState {
   generateTitle: (workspacePath: string, id: string, firstAssistantMessage: string) => Promise<void>;
   // Generate summary for long conversation
   generateSummary: (workspacePath: string, messages: Message[]) => Promise<string>;
+  deleteMessages: (workspacePath: string, ids: string[]) => Promise<void>;
   clearAgentSteps: () => void;
 }
 
@@ -76,6 +77,13 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
 
   setPrefillText: (text: string | null) => set({ prefillText: text }),
   clearAgentSteps: () => set({ agentSteps: [] }),
+
+  deleteMessages: async (workspacePath: string, ids: string[]) => {
+    await window.electronAPI.messageDeleteMany(workspacePath, ids);
+    set(s => ({
+      messages: s.messages.filter(m => !ids.includes(m.id)),
+    }));
+  },
 
   loadConversations: async (workspacePath: string) => {
     const conversations = await window.electronAPI.conversationList(workspacePath);

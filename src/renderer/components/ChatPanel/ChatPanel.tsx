@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useConversationStore } from '../../stores/conversation';
 import { useWorkspaceStore } from '../../stores/workspace';
 import ConversationList from './ConversationList';
 import MessageList from './MessageList';
 import ChatInput from './ChatInput';
-import { MessageSquarePlus, Settings, ArrowLeft, Camera } from 'lucide-react';
+import { MessageSquarePlus, Settings, ArrowLeft, Camera, ListChecks, Trash2, X } from 'lucide-react';
 import AISettings from '../AISettings/AISettings';
 import ScreenshotCapture from '../ScreenshotCapture/ScreenshotCapture';
 import type { Message } from '../../../shared/types';
@@ -15,7 +15,7 @@ const ChatPanel: React.FC = () => {
     conversations, activeConversationId, messages,
     isStreaming, streamingContent, error, prefillText, agentSteps,
     loadConversations, createConversation, setActiveConversation,
-    sendMessage, stopStreaming, clearError, setPrefillText,
+    sendMessage, stopStreaming, clearError, setPrefillText, deleteMessages,
   } = useConversationStore();
 
   const [showConvList, setShowConvList] = useState(true);
@@ -24,6 +24,8 @@ const ChatPanel: React.FC = () => {
   const [pendingImage, setPendingImage] = useState<string | null>(null);
   const [screenshotPrompt, setScreenshotPrompt] = useState<string>('');
   const [pendingAttachment, setPendingAttachment] = useState<{ path: string; name: string } | null>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const workspacePath = currentWorkspace?.path || '';
 
   const activeConv = conversations.find(c => c.id === activeConversationId);
@@ -88,37 +90,83 @@ const ChatPanel: React.FC = () => {
     }
   };
 
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleDeleteSelected = useCallback(async () => {
+    if (!workspacePath || selectedIds.size === 0) return;
+    await deleteMessages(workspacePath, Array.from(selectedIds));
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  }, [workspacePath, selectedIds, deleteMessages]);
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="p-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between flex-shrink-0">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
           {!showConvList && activeConversationId && (
             <button onClick={() => setShowConvList(true)}
-              className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors">
+              className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors flex-shrink-0">
               <ArrowLeft className="w-4 h-4 text-gray-500" />
             </button>
           )}
           <h2 className="text-sm font-semibold text-gray-900 dark:text-white truncate">
-            {showConvList ? 'AI 助手' : (activeConv?.topic || 'AI 助手')}
+            {showConvList ? 'AI 助手' : (selectionMode ? `已选择 ${selectedIds.size} 条` : (activeConv?.topic || 'AI 助手'))}
           </h2>
         </div>
-        <div className="flex items-center gap-1">
-          <button onClick={() => setIsCapturing(true)}
-            className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
-            title="截图">
-            <Camera className="w-4 h-4 text-gray-500" />
-          </button>
-          <button onClick={handleNewConversation}
-            className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
-            title="新对话">
-            <MessageSquarePlus className="w-4 h-4 text-gray-500" />
-          </button>
-          <button onClick={() => setShowSettings(true)}
-            className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
-            title="AI 设置">
-            <Settings className="w-4 h-4 text-gray-500" />
-          </button>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {!selectionMode ? (
+            <>
+              {!showConvList && (
+                <button onClick={() => setIsCapturing(true)}
+                  className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+                  title="截图">
+                  <Camera className="w-4 h-4 text-gray-500" />
+                </button>
+              )}
+              <button onClick={handleNewConversation}
+                className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+                title="新对话">
+                <MessageSquarePlus className="w-4 h-4 text-gray-500" />
+              </button>
+              <button onClick={() => setShowSettings(true)}
+                className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+                title="AI 设置">
+                <Settings className="w-4 h-4 text-gray-500" />
+              </button>
+              {!showConvList && (
+                <button onClick={() => setSelectionMode(true)}
+                  className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+                  title="多选删除">
+                  <ListChecks className="w-4 h-4 text-gray-500" />
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <button onClick={handleDeleteSelected}
+                disabled={selectedIds.size === 0}
+                className="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors disabled:opacity-30"
+                title="删除选中">
+                <Trash2 className={`w-4 h-4 ${selectedIds.size > 0 ? 'text-red-500' : 'text-gray-300 dark:text-gray-600'}`} />
+              </button>
+              <button onClick={() => { setSelectionMode(false); setSelectedIds(new Set()); }}
+                className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+                title="取消">
+                <X className="w-4 h-4 text-gray-500" />
+              </button>
+            </>
+          )}
         </div>
       </div>
       {/* Body */}
@@ -138,6 +186,9 @@ const ChatPanel: React.FC = () => {
               isStreaming={isStreaming}
               streamingContent={streamingContent}
               agentSteps={agentSteps}
+              selectionMode={selectionMode}
+              selectedIds={selectedIds}
+              onToggleSelect={toggleSelect}
             />
             {error && (
               <div className="px-3 py-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-xs flex items-center justify-between">

@@ -106,6 +106,26 @@ export class ConversationStore {
     await this.save();
     return this.data.messages[idx];
   }
+
+  async deleteMessages(ids: string[]): Promise<number> {
+    const before = this.data.messages.length;
+    const affectedConvs = new Set(
+      this.data.messages.filter(m => ids.includes(m.id)).map(m => m.conversationId)
+    );
+    this.data.messages = this.data.messages.filter(m => !ids.includes(m.id));
+    const deleted = before - this.data.messages.length;
+    if (deleted > 0) {
+      for (const convId of affectedConvs) {
+        const conv = this.data.conversations.find(c => c.id === convId);
+        if (conv) {
+          conv.messageCount = this.data.messages.filter(m => m.conversationId === convId).length;
+          conv.updatedAt = Date.now();
+        }
+      }
+      await this.save();
+    }
+    return deleted;
+  }
 }
 
 // Cache stores per workspace
