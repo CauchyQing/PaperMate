@@ -192,6 +192,17 @@ export function cancelRequest(requestId: string): boolean {
 }
 
 /**
+ * Cancel all active streaming requests.
+ * Called on app quit to prevent hanging connections from keeping the process alive.
+ */
+export function cancelAllRequests(): void {
+  for (const [requestId, controller] of activeRequests) {
+    controller.abort();
+    activeRequests.delete(requestId);
+  }
+}
+
+/**
  * Test connection to an AI provider — sends a minimal request.
  */
 export async function testConnection(provider: AIProviderConfig): Promise<{ success: boolean; error?: string }> {

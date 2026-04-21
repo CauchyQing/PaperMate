@@ -14,12 +14,13 @@ import {
   importPDFFile,
 } from './services/file-system';
 import { getPaperStore } from './services/paper-store';
-import { chatStream, cancelRequest, testConnection } from './services/ai-service';
+import { chatStream, cancelRequest, testConnection, cancelAllRequests } from './services/ai-service';
 import { getConversationStore } from './services/conversation-store';
 import { getAnnotationStore } from './services/annotation-store';
 import { estimateTokens, splitIntoChunks, buildContextWindow } from './services/context-manager';
 import { analyzePaper, createAnalysisPrompt } from './services/paper-analysis';
-import { startAgentLoop, stopAgentLoop } from './agent/agent-service';
+import { stopCdpProxy } from './agent/tools/cdp-bridge';
+import { startAgentLoop, stopAgentLoop, stopAllAgentLoops } from './agent/agent-service';
 import { buildPdfContext } from './services/pdf-context';
 import { getTranslationStore } from './services/translation-store';
 import type { AIProviderConfig } from '../shared/types/ai';
@@ -141,8 +142,21 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
+    // Clean up active resources so the process can exit cleanly on Windows.
+    // Hanging fetch/SSE readers and uncleared timers prevent Node.js event loop from exiting.
+    cancelAllRequests();
+    stopAllAgentLoops();
+    stopCdpProxy();
     app.quit();
   }
+});
+
+app.on('before-quit', () => {
+  // Extra safety net: cancel any in-flight requests / child processes
+  // that may still be keeping the event loop alive.
+  cancelAllRequests();
+  stopAllAgentLoops();
+  stopCdpProxy();
 });
 
 // IPC handlers

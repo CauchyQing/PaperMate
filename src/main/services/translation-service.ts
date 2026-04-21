@@ -82,15 +82,25 @@ export async function translateLongText(
 
     // Wait for completion and collect result
     await new Promise<void>((resolve, reject) => {
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+      const cleanup = () => {
+        if (timeoutId !== null) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+        win.webContents.off('ipc-message', handler);
+      };
+
       const handler = (event: any, channel: string, data: any) => {
         if (channel === 'ai:stream-event' && data.requestId === requestId) {
           if (data.type === 'chunk') {
             chunkTranslation += data.content;
           } else if (data.type === 'done') {
-            win.webContents.off('ipc-message', handler);
+            cleanup();
             resolve();
           } else if (data.type === 'error') {
-            win.webContents.off('ipc-message', handler);
+            cleanup();
             reject(new Error(data.error));
           }
         }
@@ -99,8 +109,8 @@ export async function translateLongText(
       win.webContents.on('ipc-message', handler);
 
       // Timeout after 5 minutes
-      setTimeout(() => {
-        win.webContents.off('ipc-message', handler);
+      timeoutId = setTimeout(() => {
+        cleanup();
         reject(new Error('翻译超时'));
       }, 5 * 60 * 1000);
     });

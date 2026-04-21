@@ -51,3 +51,14 @@ export function stopAgentLoop(requestId: string): boolean {
   }
   return false;
 }
+
+/**
+ * Stop all active agent loops.
+ * Called on app quit to prevent hanging connections from keeping the process alive.
+ */
+export function stopAllAgentLoops(): void {
+  for (const [requestId, controller] of activeAgents) {
+    controller.abort();
+    activeAgents.delete(requestId);
+  }
+}
