@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, desktopCapturer } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, desktopCapturer, shell } from 'electron';
 import * as path from 'path';
 import { configService } from './services/config';
 import {
@@ -77,6 +77,22 @@ function createWindow(): void {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+  });
+
+  // Prevent external links from navigating the app window
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
+  mainWindow.webContents.on('will-navigate', (e, url) => {
+    const currentUrl = mainWindow?.webContents.getURL();
+    if (url !== currentUrl) {
+      e.preventDefault();
+      if (url.startsWith('http://') || url.startsWith('https://')) {
+        shell.openExternal(url);
+      }
+    }
   });
 }
 
@@ -488,6 +504,11 @@ ipcMain.handle('window:captureRegion', async (_event, rect: { x: number; y: numb
     console.error('[Main] Window capture error:', error);
     throw error;
   }
+});
+
+// Shell IPC handler
+ipcMain.handle('shell:openExternal', async (_event, url: string) => {
+  await shell.openExternal(url);
 });
 
 console.log('[Main] PaperMate main process started');

@@ -101,6 +101,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Window capture - captures app window region without screen recording permission
   captureWindowRegion: (rect: { x: number; y: number; width: number; height: number }) =>
     ipcRenderer.invoke('window:captureRegion', rect),
+
+  // Shell operations
+  openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
 });
 
 // TypeScript declarations
@@ -171,6 +174,8 @@ declare global {
       desktopCapturerGetSources: (options: any) => Promise<any[]>;
       // Window capture
       captureWindowRegion: (rect: { x: number; y: number; width: number; height: number }) => Promise<string>;
+      // Shell operations
+      openExternal: (url: string) => Promise<void>;
     };
   }
 }

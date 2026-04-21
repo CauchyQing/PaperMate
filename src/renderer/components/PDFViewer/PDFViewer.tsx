@@ -124,6 +124,7 @@ const PDFViewer: React.FC = () => {
   const [outline, setOutline] = useState<Awaited<ReturnType<PDFDocumentProxy['getOutline']>> | null>(null);
   const pdfRef = useRef<PDFDocumentProxy | null>(null);
   const [showOutlinePanel, setShowOutlinePanel] = useState<boolean>(false);
+  const [outlinePanelWidth, setOutlinePanelWidth] = useState(224);
 
   // Virtual scrolling state
   const [visibleRange, setVisibleRange] = useState({ start: 1, end: 1 + BUFFER_PAGES * 2 });
@@ -894,6 +895,10 @@ const PDFViewer: React.FC = () => {
     setTranslationPanelWidth((prev) => Math.min(Math.max(prev - delta, 300), 800));
   }, []);
 
+  const handleResizeOutline = useCallback((delta: number) => {
+    setOutlinePanelWidth((prev) => Math.min(Math.max(prev + delta, 160), 480));
+  }, []);
+
   const handleUpdateAnnotation = useCallback(async (id: string, title: string, comment: string) => {
     await updateAnnotation(workspacePathRef.current, id, {
       title: title.trim() || undefined,
@@ -921,6 +926,39 @@ const PDFViewer: React.FC = () => {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [editingAnnotation]);
+
+  // Intercept PDF annotation layer link clicks: require Ctrl/Cmd+click
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const handleClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      const linkEl = target.closest('.annotationLayer a') as HTMLAnchorElement | null;
+      if (!linkEl) return;
+
+      // Require Ctrl (or Cmd on macOS) to activate links
+      if (!e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        return;
+      }
+
+      // Ctrl/Cmd is held
+      const href = linkEl.getAttribute('href');
+      const isExternal = href && (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('mailto:'));
+
+      if (isExternal) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        window.electronAPI.openExternal(href);
+      }
+      // Internal links (e.g. citation jumps) are allowed to proceed with Ctrl/Cmd held
+    };
+
+    container.addEventListener('click', handleClick, true);
+    return () => container.removeEventListener('click', handleClick, true);
+  }, [activeFile?.path]);
 
   const paperAnnotations = useMemo(() => {
     if (!activeFile) return [];
@@ -1122,18 +1160,27 @@ const PDFViewer: React.FC = () => {
       <div className="flex-1 flex overflow-hidden relative">
         {/* Outline Panel */}
         {showOutlinePanel && (
-          <div className="w-56 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex flex-col flex-shrink-0">
-            <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-800 dark:text-gray-200">目录</span>
+          <>
+            <div
+              className="bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex flex-col flex-shrink-0"
+              style={{ width: outlinePanelWidth }}
+            >
+              <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                <span className="text-sm font-medium text-gray-800 dark:text-gray-200">目录</span>
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                <PDFOutline
+                  outline={outline}
+                  pdf={pdfRef.current || false}
+                  onItemClick={handleOutlineItemClick}
+                />
+              </div>
             </div>
-            <div className="flex-1 overflow-y-auto">
-              <PDFOutline
-                outline={outline}
-                pdf={pdfRef.current || false}
-                onItemClick={handleOutlineItemClick}
-              />
-            </div>
-          </div>
+            <ResizableSplitter
+              direction="horizontal"
+              onResize={handleResizeOutline}
+            />
+          </>
         )}
 
         <div
@@ -1162,6 +1209,11 @@ const PDFViewer: React.FC = () => {
                 file={fileProp}
                 onLoadSuccess={(pdf: any) => onDocumentLoadSuccess(pdf)}
                 onLoadError={onDocumentLoadError}
+                onItemClick={(item) => {
+                  if (item.pageNumber) {
+                    jumpToPage(item.pageNumber);
+                  }
+                }}
                 options={documentOptions}
                 loading={null}
               >
