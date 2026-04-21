@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { ZoomIn, ZoomOut, RotateCw, FileText, Bookmark, List, Search, ChevronUp, ChevronDown, X, Languages } from 'lucide-react';
 import { useFileStore } from '../../stores/file';
@@ -115,6 +115,7 @@ const PDFViewer: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [pdfData, setPdfData] = useState<Uint8Array | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const { currentWorkspace } = useWorkspaceStore();
   const { createConversation, sendMessage, activeConversationId, setPrefillText } = useConversationStore();
   const { annotations, loadAnnotations, createAnnotation, updateAnnotation, deleteAnnotation } = useAnnotationStore();
@@ -616,32 +617,147 @@ const PDFViewer: React.FC = () => {
   }, [getCurrentPage, saveReadPosition]);
 
 
-  // Trackpad pinch-to-zoom
+  // Pending scroll adjustment after a zoom gesture (for pointer-centered zoom)
+  const pendingZoomScrollRef = useRef<{
+    contentX: number;
+    contentY: number;
+    pointerX: number;
+    pointerY: number;
+    oldScrollLeft: number;
+    oldScrollTop: number;
+    oldScale: number;
+    newScale: number;
+  } | null>(null);
+
+  // Listen for pinch-zoom events forwarded from the main process
+  // (Electron on macOS converts trackpad pinch to zoom-changed in the main process)
   useEffect(() => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
+    if (!window.electronAPI?.onPinchZoom) {
+      console.warn('[PDF DEBUG] onPinchZoom API not available');
+      return;
+    }
+    console.log('[PDF DEBUG] Registering onPinchZoom listener');
+    const removeListener = window.electronAPI.onPinchZoom((direction) => {
+      console.log('[PDF DEBUG] Received pinch-zoom from main:', direction);
+      const container = scrollContainerRef.current;
+      const oldScale = scaleRef.current;
+      const zoomStep = 0.15;
+      const newScale =
+        direction === 'in'
+          ? Math.min(oldScale + zoomStep, 3.0)
+          : Math.max(oldScale - zoomStep, 0.5);
 
-    const handleWheel = (e: WheelEvent) => {
-      // Mac trackpad pinch-to-zoom is represented as wheel event with ctrlKey=true
-      if (e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-        e.stopPropagation();
-        
-        // e.deltaY is negative when zooming in (pinching out)
-        const delta = e.deltaY * -0.01;
-        
-        setScale((prev) => {
-          const next = prev + delta;
-          return Math.min(Math.max(next, 0.5), 3.0);
-        });
+      if (newScale === oldScale) return;
+
+      // Use viewport centre as the zoom anchor when triggered from main-process IPC
+      let anchorX = 0;
+      let anchorY = 0;
+      let pointerX = 0;
+      let pointerY = 0;
+      if (container) {
+        const rect = container.getBoundingClientRect();
+        pointerX = rect.width / 2;
+        pointerY = rect.height / 2;
+        anchorX = pointerX + container.scrollLeft;
+        anchorY = pointerY + container.scrollTop;
       }
-    };
 
-    container.addEventListener('wheel', handleWheel, { passive: false });
-    return () => {
-      container.removeEventListener('wheel', handleWheel);
-    };
+      pendingZoomScrollRef.current = {
+        contentX: anchorX,
+        contentY: anchorY,
+        pointerX,
+        pointerY,
+        oldScale,
+        newScale,
+      };
+
+      setScale(newScale);
+    });
+    return removeListener;
   }, []);
+
+  // Trackpad pinch-to-zoom (macOS & Windows) + Ctrl+Wheel zoom
+  // Uses CSS zoom for gesture-time visual feedback (zero React re-renders).
+  // Scroll is manually compensated so the zoom is always centred on the pointer.
+  const gestureDeltaRef = useRef(0);
+  const zoomTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingCommitRef = useRef<{ oldScale: number; zoomFactor: number } | null>(null);
+  const gestureStateRef = useRef<{
+    startScrollLeft: number;
+    startScrollTop: number;
+    startPointerX: number;
+    startPointerY: number;
+    active: boolean;
+  } | null>(null);
+
+  const handleContainerWheel = useCallback((e: React.WheelEvent) => {
+    if (!e.ctrlKey && !e.metaKey) return;
+    e.stopPropagation();
+
+    const container = scrollContainerRef.current;
+    const content = contentRef.current;
+    if (!container || !content) return;
+
+    // First event of a gesture: capture starting scroll & pointer position
+    if (!gestureStateRef.current?.active) {
+      const rect = container.getBoundingClientRect();
+      gestureStateRef.current = {
+        startScrollLeft: container.scrollLeft,
+        startScrollTop: container.scrollTop,
+        startPointerX: e.clientX - rect.left,
+        startPointerY: e.clientY - rect.top,
+        active: true,
+      };
+    }
+
+    gestureDeltaRef.current += e.deltaY;
+    const zoomFactor = Math.pow(2, -gestureDeltaRef.current * 0.01);
+
+    // Apply CSS zoom (affects layout, so scrollbars grow/shrink automatically)
+    content.style.zoom = `${zoomFactor}`;
+
+    // Compensate scroll so the pointer stays anchored to the same content point.
+    // Derived from:  pointer = (scroll + pointer) * zoomFactor - newScroll
+    const { startScrollLeft, startScrollTop, startPointerX, startPointerY } =
+      gestureStateRef.current;
+    container.scrollLeft = startScrollLeft * zoomFactor + startPointerX * (zoomFactor - 1);
+    container.scrollTop = startScrollTop * zoomFactor + startPointerY * (zoomFactor - 1);
+
+    // Reset gesture-end timer
+    if (zoomTimeoutRef.current) clearTimeout(zoomTimeoutRef.current);
+
+    // 200 ms after the last wheel event we consider the gesture finished
+    zoomTimeoutRef.current = setTimeout(() => {
+      zoomTimeoutRef.current = null;
+      gestureStateRef.current = null;
+      const finalDelta = gestureDeltaRef.current;
+      gestureDeltaRef.current = 0;
+
+      const oldScale = scaleRef.current;
+      const finalZoomFactor = Math.pow(2, -finalDelta * 0.01);
+      const newScale = Math.min(Math.max(oldScale * finalZoomFactor, 0.5), 3.0);
+      if (Math.abs(newScale - oldScale) < 0.005) {
+        content.style.zoom = '';
+        return;
+      }
+
+      pendingCommitRef.current = { oldScale, zoomFactor: finalZoomFactor };
+      scaleRef.current = newScale;
+      setScale(newScale);
+    }, 200);
+  }, []);
+
+  // When react-pdf finishes rendering the new scale, remove the CSS zoom.
+  // newScale = oldScale * zoomFactor, so the layout size should already match
+  // the zoomed size; only a minor scroll drift correction is needed.
+  useLayoutEffect(() => {
+    const commit = pendingCommitRef.current;
+    if (!commit) return;
+    pendingCommitRef.current = null;
+
+    const content = contentRef.current;
+    if (content) content.style.zoom = '';
+  }, [scale]);
 
   // Mouse Drag to Pan
   useEffect(() => {
@@ -1186,6 +1302,7 @@ const PDFViewer: React.FC = () => {
         <div
           ref={scrollContainerRef}
           onScroll={handleScroll}
+          onWheel={handleContainerWheel}
           className="flex-1 overflow-auto scroll-smooth relative"
         >
           {error ? (
@@ -1201,6 +1318,7 @@ const PDFViewer: React.FC = () => {
             </div>
           ) : (
             <div
+              ref={contentRef}
               className="py-8 flex flex-col items-center"
               style={{ minHeight: totalHeight }}
             >

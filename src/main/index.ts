@@ -85,6 +85,35 @@ function createWindow(): void {
     return { action: 'deny' };
   });
 
+  // Trackpad pinch-to-zoom handling on macOS:
+  // Electron forwards trackpad pinch to Chromium as a page-zoom gesture.
+  // We listen for the resulting zoom-changed event and forward it to the
+  // renderer via IPC so the PDF viewer can handle scaling itself.
+  // NOTE: setVisualZoomLevelLimits(1,1) is intentionally OMITTED here because
+  // on macOS it suppresses the zoom-changed event entirely. Instead we let the
+  // browser zoom momentarily and reset it instantly inside the handler.
+  console.log('[Main] Setting up zoom-changed listener for trackpad pinch');
+
+  mainWindow.webContents.on('zoom-changed', (event, direction) => {
+    console.log('[Main] zoom-changed event fired, direction:', direction);
+    // Reset browser-level zoom instantly so the app UI stays at 100%
+    mainWindow?.webContents.setZoomFactor(1);
+    // Notify renderer to perform PDF-internal zoom
+    mainWindow?.webContents.send('pdf:pinch-zoom', direction);
+  });
+
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (
+      (input.control || input.meta) &&
+      ['equal', 'minus', '0', 'numpad0', 'numpadadd', 'numpadsub'].includes(
+        input.key.toLowerCase()
+      )
+    ) {
+      console.log('[Main] Blocking keyboard zoom shortcut');
+      event.preventDefault();
+    }
+  });
+
   mainWindow.webContents.on('will-navigate', (e, url) => {
     const currentUrl = mainWindow?.webContents.getURL();
     if (url !== currentUrl) {

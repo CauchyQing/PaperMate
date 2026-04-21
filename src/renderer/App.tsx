@@ -14,6 +14,19 @@ const App: React.FC = () => {
     });
   }, [loadLastWorkspace]);
 
+  // Global non-passive wheel listener to prevent browser-default zoom/scroll
+  // on trackpad pinch gestures (ctrlKey wheel). This lives at the app root so
+  // HMR inside PDFViewer cannot accidentally unregister it.
+  useEffect(() => {
+    const handler = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('wheel', handler, { passive: false });
+    return () => window.removeEventListener('wheel', handler);
+  }, []);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-100 dark:bg-gray-900">

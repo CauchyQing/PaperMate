@@ -67,6 +67,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('ai:stream-event', handler);
   },
 
+  // Trackpad pinch-to-zoom forwarded from main process
+  onPinchZoom: (callback: (direction: 'in' | 'out') => void) => {
+    const handler = (_event: any, direction: 'in' | 'out') => callback(direction);
+    ipcRenderer.on('pdf:pinch-zoom', handler);
+    return () => ipcRenderer.removeListener('pdf:pinch-zoom', handler);
+  },
+
   // Conversation operations
   conversationList: (workspacePath: string) => ipcRenderer.invoke('conversation:list', workspacePath),
   conversationCreate: (workspacePath: string, data: any) => ipcRenderer.invoke('conversation:create', workspacePath, data),
@@ -146,6 +153,8 @@ declare global {
       showOpenDialog: (options?: any) => Promise<{ canceled: boolean; filePaths: string[] }>;
       buildPdfContext: (filePath: string, fileName: string) => Promise<{ filePath: string; fileName: string; extractedText?: string; structuredSummary?: string; extractedAt?: number }>;
       onAIStreamEvent: (callback: (event: any) => void) => () => void;
+      // Trackpad pinch-to-zoom
+      onPinchZoom: (callback: (direction: 'in' | 'out') => void) => () => void;
       // Conversation operations
       conversationList: (workspacePath: string) => Promise<any[]>;
       conversationCreate: (workspacePath: string, data: any) => Promise<any>;
